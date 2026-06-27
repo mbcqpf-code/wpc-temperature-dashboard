@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WPC Temperature Extremes Dashboard</title>
+    <style>
+        /* Base and Typography */
+        body {
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f1f5f9;
+            color: #334155;
+            margin: 0;
+            padding: 0;
+        }
+
+        /* Header Styling */
+        header {
+            background-color: #0f172a;
+            color: white;
+            padding: 1.5rem;
+            text-align: center;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+        header h1 { margin: 0; font-size: 1.8rem; letter-spacing: 0.5px; }
+        header p { margin: 5px 0 0 0; color: #94a3b8; font-size: 0.9rem; }
+
+        /* Navigation Tabs */
+        .nav-container {
+            display: flex;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 10px;
+            padding: 20px;
+            background: white;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        .nav-btn {
+            padding: 10px 24px;
+            border: none;
+            background: #e2e8f0;
+            color: #475569;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            border-radius: 6px;
+            transition: all 0.2s ease;
+        }
+        .nav-btn:hover:not(.active) { background: #cbd5e1; }
+        .nav-btn.active { background: #2563eb; color: white; box-shadow: 0 2px 4px rgba(37, 99, 235, 0.3); }
+
+        /* Content Panels */
+        .panel { display: none; padding: 30px; max-width: 1600px; margin: 0 auto; animation: fadeIn 0.4s; }
+        .panel.active { display: block; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+        /* Side-by-Side Image Layout */
+        .image-grid {
+            display: flex;
+            gap: 30px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        .image-card {
+            flex: 1;
+            min-width: 500px;
+            background: white;
+            padding: 15px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+            text-align: center;
+        }
+        .image-card img {
+            width: 100%;
+            height: auto;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        .image-card img:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+        }
+
+        /* Lightbox Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(15, 23, 42, 0.95);
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+        }
+        .modal-content {
+            max-width: 95%;
+            max-height: 90vh;
+            border-radius: 4px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            animation: zoomIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        @keyframes zoomIn { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+        
+        .close {
+            position: absolute;
+            top: 20px;
+            right: 35px;
+            color: #f1f5f9;
+            font-size: 40px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: color 0.2s;
+        }
+        .close:hover { color: #ef4444; }
+        .modal-hint { color: #94a3b8; margin-top: 15px; font-size: 0.9rem; }
+
+        /* Mobile responsiveness */
+        @media (max-width: 768px) {
+            .image-card { min-width: 100%; }
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>WPC Superensemble vs NBM Validation</h1>
+        <p>Dynamic Forecast Package</p>
+    </header>
+
+    <div class="nav-container" id="tabs">
+        </div>
+
+    <div id="panels">
+        </div>
+
+    <div id="imageModal" class="modal" onclick="closeModal(event)">
+        <span class="close" onclick="closeModal(event)">&times;</span>
+        <img class="modal-content" id="enlargedImg">
+        <div class="modal-hint">Click anywhere to close</div>
+    </div>
+
+    <script>
+        // Check offsets 3 through 8 to capture both Day and Night shift files
+        const possibleOffsets = [3, 4, 5, 6, 7, 8];
+        const tabsContainer = document.getElementById('tabs');
+        const panelsContainer = document.getElementById('panels');
+        
+        let loadedCount = 0;
+        let firstLoadedOffset = null;
+
+        possibleOffsets.forEach(offset => {
+            const img1Src = `output/day_${offset}_percentile.png`;
+            const img2Src = `output/day_${offset}_verification.png`;
+
+            // Test if the image exists before building the UI
+            const imgTester = new Image();
+            imgTester.src = img1Src;
+            
+            imgTester.onload = () => {
+                loadedCount++;
+                
+                // 1. Create the Button
+                const btn = document.createElement('button');
+                btn.className = 'nav-btn';
+                btn.id = `btn-${offset}`;
+                // Label them in order of appearance (Target Day 1 to 5)
+                btn.innerText = `Forecast Target ${loadedCount}`;
+                btn.onclick = () => activateTab(offset);
+                tabsContainer.appendChild(btn);
+
+                // 2. Create the Panel
+                const panel = document.createElement('div');
+                panel.className = 'panel';
+                panel.id = `panel-${offset}`;
+
+                const grid = document.createElement('div');
+                grid.className = 'image-grid';
+
+                // Percentile Card
+                const card1 = document.createElement('div');
+                card1.className = 'image-card';
+                card1.innerHTML = `<img src="${img1Src}" alt="Percentile Map" onclick="openModal(this.src)">`;
+                
+                // Verification Card
+                const card2 = document.createElement('div');
+                card2.className = 'image-card';
+                card2.innerHTML = `<img src="${img2Src}" alt="Verification Map" onclick="openModal(this.src)">`;
+
+                grid.appendChild(card1);
+                grid.appendChild(card2);
+                panel.appendChild(grid);
+                panelsContainer.appendChild(panel);
+
+                // Automatically activate the very first valid tab it finds
+                if (!firstLoadedOffset) {
+                    firstLoadedOffset = offset;
+                    activateTab(firstLoadedOffset);
+                }
+            };
+        });
+
+        // Tab Switching Logic
+        function activateTab(targetOffset) {
+            // Hide all panels and deactivate all buttons
+            document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+            document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+            
+            // Show the target panel and highlight the button
+            document.getElementById(`panel-${targetOffset}`).classList.add('active');
+            document.getElementById(`btn-${targetOffset}`).classList.add('active');
+        }
+
+        // Lightbox Logic
+        const modal = document.getElementById('imageModal');
+        const modalImg = document.getElementById('enlargedImg');
+
+        function openModal(src) {
+            modal.style.display = 'flex';
+            modalImg.src = src;
+        }
+
+        function closeModal(event) {
+            // Only close if clicking the background, the X, or the image itself
+            modal.style.display = 'none';
+        }
+
+        // Add Escape key listener to close modal
+        document.addEventListener('keydown', function(event) {
+            if (event.key === "Escape") {
+                modal.style.display = 'none';
+            }
+        });
+    </script>
+</body>
+</html>
