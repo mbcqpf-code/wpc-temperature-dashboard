@@ -143,7 +143,7 @@
     </div>
 
 <script>
-        // 1. DYNAMIC SHIFT DETECTOR (Matches Python Logic exactly)
+        // 1. DYNAMIC SHIFT DETECTOR
         const now = new Date();
         const utcHour = now.getUTCHours();
         const utcMinute = now.getUTCMinutes();
@@ -159,70 +159,78 @@
 
         const tabsContainer = document.getElementById('tabs');
         const panelsContainer = document.getElementById('panels');
-        
-        let loadedCount = 0;
-        let firstLoadedOffset = null;
-        
-        // 2. CACHE BUSTER: Forces the browser to load the absolute newest image
         const cacheBuster = `?v=${now.getTime()}`;
 
-        targetOffsets.forEach(offset => {
-            const img1Src = `output/day_${offset}_percentile.png`;
-            const img2Src = `output/day_${offset}_verification.png`;
-            const img3Src = `output/day_${offset}_difference.png`;
+        // 2. THE ASYNC CHECKER
+        // Returns a promise that resolves with the offset if the image exists, or null if it fails
+        const checkImage = (offset) => {
+            return new Promise((resolve) => {
+                const imgTester = new Image();
+                imgTester.onload = () => resolve(offset);
+                imgTester.onerror = () => resolve(null);
+                imgTester.src = `output/day_${offset}_percentile.png${cacheBuster}`;
+            });
+        };
 
-            // Test if the image exists before building the UI
-            const imgTester = new Image();
-            imgTester.src = img1Src + cacheBuster; 
-            
-            imgTester.onload = () => {
-                loadedCount++;
-                
-                // Create the Button
-                const btn = document.createElement('button');
-                btn.className = 'nav-btn';
-                btn.id = `btn-${offset}`;
-                btn.innerText = `Forecast Target ${loadedCount}`;
-                btn.onclick = () => activateTab(offset);
-                tabsContainer.appendChild(btn);
+        // 3. STRICT CHRONOLOGICAL BUILDER
+        // Waits for ALL checks to finish, guaranteeing the results stay in chronological order
+        Promise.all(targetOffsets.map(checkImage)).then(results => {
+            let loadedCount = 0;
+            let firstLoadedOffset = null;
 
-                // Create the Panel
-                const panel = document.createElement('div');
-                panel.className = 'panel';
-                panel.id = `panel-${offset}`;
+            results.forEach(offset => {
+                if (offset !== null) {
+                    loadedCount++;
+                    const img1Src = `output/day_${offset}_percentile.png${cacheBuster}`;
+                    const img2Src = `output/day_${offset}_verification.png${cacheBuster}`;
+                    const img3Src = `output/day_${offset}_difference.png${cacheBuster}`;
 
-                const grid = document.createElement('div');
-                grid.className = 'image-grid';
+                    // Create the Button
+                    const btn = document.createElement('button');
+                    btn.className = 'nav-btn';
+                    btn.id = `btn-${offset}`;
+                    btn.innerText = `Forecast Target ${loadedCount}`;
+                    btn.onclick = () => activateTab(offset);
+                    tabsContainer.appendChild(btn);
 
-                // Percentile Card
-                const card1 = document.createElement('div');
-                card1.className = 'image-card';
-                card1.innerHTML = `<img src="${img1Src}${cacheBuster}" alt="Percentile Map" onclick="openModal(this.src)">`;
-                
-                // Verification Card
-                const card2 = document.createElement('div');
-                card2.className = 'image-card';
-                card2.innerHTML = `<img src="${img2Src}${cacheBuster}" alt="Verification Map" onclick="openModal(this.src)">`;
+                    // Create the Panel
+                    const panel = document.createElement('div');
+                    panel.className = 'panel';
+                    panel.id = `panel-${offset}`;
 
-                // Difference Map Card
-                const card3 = document.createElement('div');
-                card3.className = 'image-card';
-                card3.style.width = '100%';
-                card3.style.marginTop = '30px';
-                card3.innerHTML = `<img src="${img3Src}${cacheBuster}" alt="Difference Map" onclick="openModal(this.src)">`;
+                    const grid = document.createElement('div');
+                    grid.className = 'image-grid';
 
-                grid.appendChild(card1);
-                grid.appendChild(card2);
-                panel.appendChild(grid);
-                panel.appendChild(card3);
-                panelsContainer.appendChild(panel);
+                    // Percentile Card
+                    const card1 = document.createElement('div');
+                    card1.className = 'image-card';
+                    card1.innerHTML = `<img src="${img1Src}" alt="Percentile Map" onclick="openModal(this.src)">`;
+                    
+                    // Verification Card
+                    const card2 = document.createElement('div');
+                    card2.className = 'image-card';
+                    card2.innerHTML = `<img src="${img2Src}" alt="Verification Map" onclick="openModal(this.src)">`;
 
-                // Automatically activate the very first valid tab it finds
-                if (!firstLoadedOffset) {
-                    firstLoadedOffset = offset;
-                    activateTab(firstLoadedOffset);
+                    // Difference Map Card
+                    const card3 = document.createElement('div');
+                    card3.className = 'image-card';
+                    card3.style.width = '100%';
+                    card3.style.marginTop = '30px';
+                    card3.innerHTML = `<img src="${img3Src}" alt="Difference Map" onclick="openModal(this.src)">`;
+
+                    grid.appendChild(card1);
+                    grid.appendChild(card2);
+                    panel.appendChild(grid);
+                    panel.appendChild(card3);
+                    panelsContainer.appendChild(panel);
+
+                    // Automatically activate the very first valid tab it finds
+                    if (!firstLoadedOffset) {
+                        firstLoadedOffset = offset;
+                        activateTab(firstLoadedOffset);
+                    }
                 }
-            };
+            });
         });
 
         // Tab Switching Logic
