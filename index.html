@@ -142,37 +142,51 @@
         <div class="modal-hint">Click anywhere to close</div>
     </div>
 
-    <script>
-        // Check offsets 3 through 8 to capture both Day and Night shift files
-        const possibleOffsets = [3, 4, 5, 6, 7, 8];
+<script>
+        // 1. DYNAMIC SHIFT DETECTOR (Matches Python Logic exactly)
+        const now = new Date();
+        const utcHour = now.getUTCHours();
+        const utcMinute = now.getUTCMinutes();
+        let targetOffsets = [];
+
+        // 01:31z to 13:30z -> Night Shift (18z NBM) -> Offsets 4 through 8
+        if ((utcHour === 1 && utcMinute > 30) || (utcHour >= 2 && utcHour <= 12) || (utcHour === 13 && utcMinute <= 30)) {
+            targetOffsets = [4, 5, 6, 7, 8];
+        } else {
+            // 13:31z to 01:30z -> Day Shift (06z NBM) -> Offsets 3 through 7
+            targetOffsets = [3, 4, 5, 6, 7];
+        }
+
         const tabsContainer = document.getElementById('tabs');
         const panelsContainer = document.getElementById('panels');
         
         let loadedCount = 0;
         let firstLoadedOffset = null;
+        
+        // 2. CACHE BUSTER: Forces the browser to load the absolute newest image
+        const cacheBuster = `?v=${now.getTime()}`;
 
-        possibleOffsets.forEach(offset => {
+        targetOffsets.forEach(offset => {
             const img1Src = `output/day_${offset}_percentile.png`;
             const img2Src = `output/day_${offset}_verification.png`;
             const img3Src = `output/day_${offset}_difference.png`;
 
             // Test if the image exists before building the UI
             const imgTester = new Image();
-            imgTester.src = img1Src;
+            imgTester.src = img1Src + cacheBuster; 
             
             imgTester.onload = () => {
                 loadedCount++;
                 
-                // 1. Create the Button
+                // Create the Button
                 const btn = document.createElement('button');
                 btn.className = 'nav-btn';
                 btn.id = `btn-${offset}`;
-                // Label them in order of appearance (Target Day 1 to 5)
                 btn.innerText = `Forecast Target ${loadedCount}`;
                 btn.onclick = () => activateTab(offset);
                 tabsContainer.appendChild(btn);
 
-                // 2. Create the Panel
+                // Create the Panel
                 const panel = document.createElement('div');
                 panel.className = 'panel';
                 panel.id = `panel-${offset}`;
@@ -183,19 +197,19 @@
                 // Percentile Card
                 const card1 = document.createElement('div');
                 card1.className = 'image-card';
-                card1.innerHTML = `<img src="${img1Src}" alt="Percentile Map" onclick="openModal(this.src)">`;
+                card1.innerHTML = `<img src="${img1Src}${cacheBuster}" alt="Percentile Map" onclick="openModal(this.src)">`;
                 
                 // Verification Card
                 const card2 = document.createElement('div');
                 card2.className = 'image-card';
-                card2.innerHTML = `<img src="${img2Src}" alt="Verification Map" onclick="openModal(this.src)">`;
+                card2.innerHTML = `<img src="${img2Src}${cacheBuster}" alt="Verification Map" onclick="openModal(this.src)">`;
 
                 // Difference Map Card
                 const card3 = document.createElement('div');
                 card3.className = 'image-card';
                 card3.style.width = '100%';
                 card3.style.marginTop = '30px';
-                card3.innerHTML = `<img src="${img3Src}" alt="Difference Map" onclick="openModal(this.src)">`;
+                card3.innerHTML = `<img src="${img3Src}${cacheBuster}" alt="Difference Map" onclick="openModal(this.src)">`;
 
                 grid.appendChild(card1);
                 grid.appendChild(card2);
@@ -213,11 +227,8 @@
 
         // Tab Switching Logic
         function activateTab(targetOffset) {
-            // Hide all panels and deactivate all buttons
             document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
             document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
-            
-            // Show the target panel and highlight the button
             document.getElementById(`panel-${targetOffset}`).classList.add('active');
             document.getElementById(`btn-${targetOffset}`).classList.add('active');
         }
@@ -235,7 +246,6 @@
             modal.style.display = 'none';
         }
 
-        // Add Escape key listener to close modal
         document.addEventListener('keydown', function(event) {
             if (event.key === "Escape") {
                 modal.style.display = 'none';
