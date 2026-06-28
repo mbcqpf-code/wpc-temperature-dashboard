@@ -155,6 +155,7 @@
         possibleOffsets.forEach(offset => {
             const img1Src = `output/day_${offset}_percentile.png`;
             const img2Src = `output/day_${offset}_verification.png`;
+            const img3Src = `output/day_${offset}_difference.png`;
 
             // Test if the image exists before building the UI
             const imgTester = new Image();
@@ -190,9 +191,17 @@
                 card2.className = 'image-card';
                 card2.innerHTML = `<img src="${img2Src}" alt="Verification Map" onclick="openModal(this.src)">`;
 
+                // Difference Map Card
+                const card3 = document.createElement('div');
+                card3.className = 'image-card';
+                card3.style.width = '100%';
+                card3.style.marginTop = '30px';
+                card3.innerHTML = `<img src="${img3Src}" alt="Difference Map" onclick="openModal(this.src)">`;
+
                 grid.appendChild(card1);
                 grid.appendChild(card2);
                 panel.appendChild(grid);
+                panel.appendChild(card3);
                 panelsContainer.appendChild(panel);
 
                 // Automatically activate the very first valid tab it finds
@@ -224,7 +233,6 @@
         }
 
         function closeModal(event) {
-            // Only close if clicking the background, the X, or the image itself
             modal.style.display = 'none';
         }
 
