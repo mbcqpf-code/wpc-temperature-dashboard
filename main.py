@@ -260,9 +260,8 @@ for offset in date_offsets:
     cbar1 = plt.colorbar(contour1, shrink=0.7, pad=0.02, ticks=[0, 10, 25, 50, 75, 90, 100])
     cbar1.set_label('NBM Percentile Rank (%)', fontsize=12)
     cbar1.ax.hlines([10, 25, 75, 90], 0, 1, colors='black', linewidth=1.5, linestyles='--')
-    ax1.set_title(f"NBM Max Temperature Percentile Rank vs Superensemble\nValid Date: {valid_date_str} | Init: {global_init_time}", fontsize=13, loc='left', weight='bold')
+    ax1.set_title(f"NBM {nbm_cycle}z QMD Max Temperature Percentile Rank vs Superensemble\nValid Date: {valid_date_str} | Init: {global_init_time}", fontsize=13, loc='left', weight='bold')
     
-    # [CHANGE]: Headless Save Engine replacing plt.show()
     fig1.savefig(f"output/day_{offset}_percentile.png", bbox_inches='tight', dpi=150)
 
     # --- PLOT 2: VERIFICATION PANELS ---
@@ -279,9 +278,42 @@ for offset in date_offsets:
 
     cbar_ax = fig2.add_axes([0.15, 0.05, 0.7, 0.02])
     cbar2 = fig2.colorbar(cf, cax=cbar_ax, orientation='horizontal'); cbar2.set_label('Max Temperature (°F)', fontsize=14)
-    fig2.suptitle(f"Input Verification Checklist: Max Temperature Forecast Mapping\nValid Date: {valid_date_str} | Init: {global_init_time}", fontsize=15, weight='bold', y=0.96)
+    fig2.suptitle(f"Input Verification Checklist: Max Temperature Forecast Mapping (NBM {nbm_cycle}z QMD)\nValid Date: {valid_date_str} | Init: {global_init_time}", fontsize=15, weight='bold', y=0.96)
     
-    # [CHANGE]: Headless Save Engine replacing plt.show()
     fig2.savefig(f"output/day_{offset}_verification.png", bbox_inches='tight', dpi=150)
+
+    # --- PLOT 3: 3-PANEL DIFFERENCE MAP ---
+    print("Plotting 3-Panel Difference Map...")
+    diff_gefs = nbm_f - gefs_mean_f
+    diff_ifs = nbm_f - ifs_mean_f
+    diff_aifs = nbm_f - aifs_mean_f
+
+    fig3, axs3 = plt.subplots(1, 3, figsize=(24, 7), subplot_kw={'projection': ccrs.LambertConformal(central_longitude=-96.0, central_latitude=39.2)})
+    axs3 = axs3.flatten()
+    
+    # Scale from -16F to +16F (Red means NBM is running hotter, Blue means NBM is running cooler)
+    diff_levels = np.arange(-16, 18, 2) 
+    diff_cmap = 'RdBu_r'
+    
+    diff_data = [
+        (diff_gefs, "NBM minus GEFS Mean"),
+        (diff_ifs, "NBM minus IFS Mean"),
+        (diff_aifs, "NBM minus AIFS Mean (Corrected)")
+    ]
+
+    for i, (dataset, title) in enumerate(diff_data):
+        axs3[i].set_extent([lon_min, lon_max, lat_min, lat_max], crs=ccrs.PlateCarree())
+        axs3[i].add_feature(cfeature.COASTLINE, linewidth=0.8)
+        axs3[i].add_feature(cfeature.STATES, linewidth=0.4, linestyle="--")
+        cf3 = axs3[i].contourf(target_lons, target_lats, dataset, levels=diff_levels, cmap=diff_cmap, transform=ccrs.PlateCarree(), extend='both')
+        axs3[i].set_title(title, fontsize=12, weight='bold')
+
+    fig3.subplots_adjust(bottom=0.15)
+    cbar_ax3 = fig3.add_axes([0.15, 0.05, 0.7, 0.03])
+    cbar3 = fig3.colorbar(cf3, cax=cbar_ax3, orientation='horizontal')
+    cbar3.set_label('Temperature Difference (°F) [Positive/Red = NBM is Warmer]', fontsize=14)
+    fig3.suptitle(f"Ensemble Bias Check: NBM {nbm_cycle}z QMD vs Global Means\nValid Date: {valid_date_str} | Init: {global_init_time}", fontsize=15, weight='bold', y=0.98)
+    
+    fig3.savefig(f"output/day_{offset}_difference.png", bbox_inches='tight', dpi=150)
     
     plt.close('all')
