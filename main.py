@@ -15,11 +15,11 @@ import warnings
 warnings.filterwarnings('ignore')
 
 # --- 1. DIRECTORY SETUP FOR GITHUB ACTIONS ---
-# Ensures the output directory exists so headless files save correctly
 os.makedirs("output", exist_ok=True)
 
 # --- 2. AUTOMATIC SHIFT DETECTOR & CALENDAR SYNC ---
 now = datetime.utcnow()
+run_timestamp = now.strftime('%Y-%m-%d %H:%Mz') # Timestamp for the image corners
 
 # Determine operational window based on WPC arrival schedules
 if (now.hour == 1 and now.minute > 30) or (2 <= now.hour <= 12) or (now.hour == 13 and now.minute <= 30):
@@ -38,7 +38,11 @@ else:
     date_offsets = [3, 4, 5, 6, 7]
 
 global_init_time = base_date.strftime(f'%Y-%m-%d {global_cycle}:00')
+nbm_date_str = base_date.strftime('%Y-%m-%d')
+nbm_date_nomads = base_date.strftime('%Y%m%d') # For the URL formatting
+
 print(f"📊 Global Model Baseline Cycle: {global_init_time}")
+print(f"📊 NBM Baseline Cycle: {nbm_date_str} {nbm_cycle}:00")
 
 # CONUS Domain Setup
 lon_min, lon_max = -125.0, -65.0
@@ -61,7 +65,12 @@ for i in range(len(levels) - 1):
         # Fade the 25th-75th percentiles (30% color, 70% white)
         colors_b1[i] = colors_b1[i] * 0.30 + white * 0.70
         colors_b1[i][3] = 1.0  
+
 custom_percentile_cmap = mcolors.ListedColormap(colors_b1)
+
+# THE FIX: Force "bad" (NaN) and "under" (out of bounds) values to be 100% transparent
+custom_percentile_cmap.set_bad(color='white', alpha=0)
+custom_percentile_cmap.set_under(color='white', alpha=0)
 
 def standardize_grid(ds):
     var_key = list(ds.data_vars)[0]
@@ -200,9 +209,8 @@ for offset in date_offsets:
 
     # Fetch NBM 
     try:
-        nbm_date_str = base_date.strftime('%Y%m%d')
         fxx_str = f"f{nbm_fxx:03d}"
-        base_url = f"https://nomads.ncep.noaa.gov/pub/data/nccf/com/blend/prod/blend.{nbm_date_str}/{nbm_cycle}/qmd/"
+        base_url = f"https://nomads.ncep.noaa.gov/pub/data/nccf/com/blend/prod/blend.{nbm_date_nomads}/{nbm_cycle}/qmd/"
         file_name = f"blend.t{nbm_cycle}z.qmd.{fxx_str}.co.grib2"
         
         r_idx = requests.get(f"{base_url}{file_name}.idx")
@@ -245,8 +253,12 @@ for offset in date_offsets:
     members_below_nbm = np.sum(super_matrix < nbm_regridded, axis=0)
     percentile_rank = (members_below_nbm / super_matrix.shape[0]) * 100
 
-    # THE FIX: Apply the NumPy "Cookie Cutter" to mask out areas outside the NBM grid
-    percentile_rank = np.where(np.isnan(nbm_regridded), np.nan, percentile_rank)
+    # THE MASK FIX: Use a strict NumPy Masked Array so contourf ignores missing pixels entirely
+    percentile_rank_masked = np.ma.masked_where(np.isnan(nbm_regridded), percentile_rank)
+
+    # Clean Explicit Titles
+    title_valid = f"Valid Date: {valid_date_str}"
+    title_inits = f"NBM Init: {nbm_date_str} {nbm_cycle}z | Ensemble Init: {global_init_time}"
 
     # --- PLOT 1: PERCENTILES WITH CUSTOM COLORMAP ---
     fig1 = plt.figure(figsize=(14, 9))
@@ -256,15 +268,16 @@ for offset in date_offsets:
     ax1.add_feature(cfeature.STATES, linewidth=0.4, linestyle="--")
     
     contour1 = ax1.contourf(
-        target_lons, target_lats, percentile_rank, 
+        target_lons, target_lats, percentile_rank_masked, 
         levels=levels, cmap=custom_percentile_cmap, transform=ccrs.PlateCarree(), extend='both'
     )
     
     cbar1 = plt.colorbar(contour1, shrink=0.7, pad=0.02, ticks=[0, 10, 25, 50, 75, 90, 100])
     cbar1.set_label('NBM Percentile Rank (%)', fontsize=12)
     cbar1.ax.hlines([10, 25, 75, 90], 0, 1, colors='black', linewidth=1.5, linestyles='--')
-    ax1.set_title(f"NBM {nbm_cycle}z QMD Max Temperature Percentile Rank vs Superensemble\nValid Date: {valid_date_str} | Init: {global_init_time}", fontsize=13, loc='left', weight='bold')
     
+    ax1.set_title(f"Max Temperature Percentile Rank (NBM vs Superensemble)\n{title_valid} | {title_inits}", fontsize=13, loc='left', weight='bold')
+    fig1.text(0.99, 0.01, f"Generated: {run_timestamp}", ha='right', va='bottom', fontsize=10, color='gray')
     fig1.savefig(f"output/day_{offset}_percentile.png", bbox_inches='tight', dpi=150)
 
     # --- PLOT 2: VERIFICATION PANELS ---
@@ -281,8 +294,9 @@ for offset in date_offsets:
 
     cbar_ax = fig2.add_axes([0.15, 0.05, 0.7, 0.02])
     cbar2 = fig2.colorbar(cf, cax=cbar_ax, orientation='horizontal'); cbar2.set_label('Max Temperature (°F)', fontsize=14)
-    fig2.suptitle(f"Input Verification Checklist: Max Temperature Forecast Mapping (NBM {nbm_cycle}z QMD)\nValid Date: {valid_date_str} | Init: {global_init_time}", fontsize=15, weight='bold', y=0.96)
+    fig2.suptitle(f"Input Verification Checklist: Max Temperature Forecast Mapping\n{title_valid} | {title_inits}", fontsize=15, weight='bold', y=0.96)
     
+    fig2.text(0.99, 0.01, f"Generated: {run_timestamp}", ha='right', va='bottom', fontsize=10, color='gray')
     fig2.savefig(f"output/day_{offset}_verification.png", bbox_inches='tight', dpi=150)
 
     # --- PLOT 3: 3-PANEL DIFFERENCE MAP ---
@@ -294,7 +308,6 @@ for offset in date_offsets:
     fig3, axs3 = plt.subplots(1, 3, figsize=(24, 7), subplot_kw={'projection': ccrs.LambertConformal(central_longitude=-96.0, central_latitude=39.2)})
     axs3 = axs3.flatten()
     
-    # Scale from -16F to +16F (Red means NBM is running hotter, Blue means NBM is running cooler)
     diff_levels = np.arange(-16, 18, 2) 
     diff_cmap = 'RdBu_r'
     
@@ -308,15 +321,20 @@ for offset in date_offsets:
         axs3[i].set_extent([lon_min, lon_max, lat_min, lat_max], crs=ccrs.PlateCarree())
         axs3[i].add_feature(cfeature.COASTLINE, linewidth=0.8)
         axs3[i].add_feature(cfeature.STATES, linewidth=0.4, linestyle="--")
-        cf3 = axs3[i].contourf(target_lons, target_lats, dataset, levels=diff_levels, cmap=diff_cmap, transform=ccrs.PlateCarree(), extend='both')
+        
+        # We mask the difference arrays here too to keep it clean!
+        dataset_masked = np.ma.masked_where(np.isnan(nbm_regridded), dataset)
+        
+        cf3 = axs3[i].contourf(target_lons, target_lats, dataset_masked, levels=diff_levels, cmap=diff_cmap, transform=ccrs.PlateCarree(), extend='both')
         axs3[i].set_title(title, fontsize=12, weight='bold')
 
     fig3.subplots_adjust(bottom=0.15)
     cbar_ax3 = fig3.add_axes([0.15, 0.05, 0.7, 0.03])
     cbar3 = fig3.colorbar(cf3, cax=cbar_ax3, orientation='horizontal')
     cbar3.set_label('Temperature Difference (°F) [Positive/Red = NBM is Warmer]', fontsize=14)
-    fig3.suptitle(f"Ensemble Bias Check: NBM {nbm_cycle}z QMD vs Global Means\nValid Date: {valid_date_str} | Init: {global_init_time}", fontsize=15, weight='bold', y=0.98)
+    fig3.suptitle(f"Ensemble Bias Check: NBM QMD vs Global Means\n{title_valid} | {title_inits}", fontsize=15, weight='bold', y=0.98)
     
+    fig3.text(0.99, 0.01, f"Generated: {run_timestamp}", ha='right', va='bottom', fontsize=10, color='gray')
     fig3.savefig(f"output/day_{offset}_difference.png", bbox_inches='tight', dpi=150)
     
     plt.close('all')
