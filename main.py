@@ -245,6 +245,9 @@ for offset in date_offsets:
     members_below_nbm = np.sum(super_matrix < nbm_regridded, axis=0)
     percentile_rank = (members_below_nbm / super_matrix.shape[0]) * 100
 
+    # THE FIX: Apply the NumPy "Cookie Cutter" to mask out areas outside the NBM grid
+    percentile_rank = np.where(np.isnan(nbm_regridded), np.nan, percentile_rank)
+
     # --- PLOT 1: PERCENTILES WITH CUSTOM COLORMAP ---
     fig1 = plt.figure(figsize=(14, 9))
     ax1 = plt.axes(projection=ccrs.LambertConformal(central_longitude=-96.0, central_latitude=39.2))
