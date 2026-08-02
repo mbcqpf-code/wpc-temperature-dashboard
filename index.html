@@ -148,6 +148,9 @@
         const utcHour = now.getUTCHours();
         const utcMinute = now.getUTCMinutes();
         let targetOffsets = [];
+        
+        // NEW: Array to track which offsets successfully loaded images
+        let loadedOffsets = [];
 
         // 01:31z to 13:30z -> Night Shift (18z NBM) -> Offsets 4 through 8
         if ((utcHour === 1 && utcMinute > 30) || (utcHour >= 2 && utcHour <= 12) || (utcHour === 13 && utcMinute <= 30)) {
@@ -162,7 +165,6 @@
         const cacheBuster = `?v=${now.getTime()}`;
 
         // 2. THE ASYNC CHECKER
-        // Returns a promise that resolves with the offset if the image exists, or null if it fails
         const checkImage = (offset) => {
             return new Promise((resolve) => {
                 const imgTester = new Image();
@@ -172,8 +174,7 @@
             });
         };
 
-        // 3. STRICT CHRONOLOGICAL BUILDER
-        // Waits for ALL checks to finish, guaranteeing the results stay in chronological order
+        // 3. STRICT CHRONOLOGICAL BUILDER[cite: 2]
         Promise.all(targetOffsets.map(checkImage)).then(results => {
             let loadedCount = 0;
             let firstLoadedOffset = null;
@@ -181,11 +182,14 @@
             results.forEach(offset => {
                 if (offset !== null) {
                     loadedCount++;
+                    // NEW: Store successful offsets to enable arrow key navigation
+                    loadedOffsets.push(offset);
+                    
                     const img1Src = `output/day_${offset}_percentile.png${cacheBuster}`;
                     const img2Src = `output/day_${offset}_verification.png${cacheBuster}`;
                     const img3Src = `output/day_${offset}_difference.png${cacheBuster}`;
 
-                    // Create the Button
+                    // Create the Button[cite: 2]
                     const btn = document.createElement('button');
                     btn.className = 'nav-btn';
                     btn.id = `btn-${offset}`;
@@ -193,7 +197,7 @@
                     btn.onclick = () => activateTab(offset);
                     tabsContainer.appendChild(btn);
 
-                    // Create the Panel
+                    // Create the Panel[cite: 2]
                     const panel = document.createElement('div');
                     panel.className = 'panel';
                     panel.id = `panel-${offset}`;
@@ -201,17 +205,17 @@
                     const grid = document.createElement('div');
                     grid.className = 'image-grid';
 
-                    // Percentile Card
+                    // Percentile Card[cite: 2]
                     const card1 = document.createElement('div');
                     card1.className = 'image-card';
                     card1.innerHTML = `<img src="${img1Src}" alt="Percentile Map" onclick="openModal(this.src)">`;
                     
-                    // Verification Card
+                    // Verification Card[cite: 2]
                     const card2 = document.createElement('div');
                     card2.className = 'image-card';
                     card2.innerHTML = `<img src="${img2Src}" alt="Verification Map" onclick="openModal(this.src)">`;
 
-                    // Difference Map Card
+                    // Difference Map Card[cite: 2]
                     const card3 = document.createElement('div');
                     card3.className = 'image-card';
                     card3.style.width = '100%';
@@ -224,7 +228,7 @@
                     panel.appendChild(card3);
                     panelsContainer.appendChild(panel);
 
-                    // Automatically activate the very first valid tab it finds
+                    // Automatically activate the very first valid tab it finds[cite: 2]
                     if (!firstLoadedOffset) {
                         firstLoadedOffset = offset;
                         activateTab(firstLoadedOffset);
@@ -233,7 +237,7 @@
             });
         });
 
-        // Tab Switching Logic
+        // Tab Switching Logic[cite: 2]
         function activateTab(targetOffset) {
             document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
             document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
@@ -241,7 +245,7 @@
             document.getElementById(`btn-${targetOffset}`).classList.add('active');
         }
 
-        // Lightbox Logic
+        // Lightbox Logic[cite: 2]
         const modal = document.getElementById('imageModal');
         const modalImg = document.getElementById('enlargedImg');
 
@@ -254,9 +258,36 @@
             modal.style.display = 'none';
         }
 
+        // 4. UPDATED EVENT LISTENER WITH KEYBOARD SHORTCUTS
         document.addEventListener('keydown', function(event) {
+            // Existing logic to close the modal[cite: 2]
             if (event.key === "Escape") {
                 modal.style.display = 'none';
+                return;
+            }
+
+            // Prevent arrow keys from cycling tabs if the image modal is open
+            if (modal.style.display === 'flex') return;
+
+            if (loadedOffsets.length > 0) {
+                // Find the currently active tab ID
+                const activeBtn = document.querySelector('.nav-btn.active');
+                if (activeBtn) {
+                    const currentOffset = parseInt(activeBtn.id.replace('btn-', ''));
+                    const currentIndex = loadedOffsets.indexOf(currentOffset);
+
+                    if (currentIndex !== -1) {
+                        if (event.key === "ArrowRight") {
+                            // Move to the next tab, loop back to the beginning if at the end
+                            const nextIndex = (currentIndex + 1) % loadedOffsets.length;
+                            activateTab(loadedOffsets[nextIndex]);
+                        } else if (event.key === "ArrowLeft") {
+                            // Move to the previous tab, loop to the end if at the beginning
+                            const prevIndex = (currentIndex - 1 + loadedOffsets.length) % loadedOffsets.length;
+                            activateTab(loadedOffsets[prevIndex]);
+                        }
+                    }
+                }
             }
         });
     </script>
