@@ -29,6 +29,10 @@ if (now.hour == 1 and now.minute > 30) or (2 <= now.hour <= 12) or (now.hour == 
     nbm_cycle = "18"
     mode = "18z_package"
     date_offsets = [4, 5, 6, 7, 8] 
+    
+    # NEW: Operational Label Translation (18z NBM QMD -> 01z Next Day)
+    display_nbm_time = base_date + timedelta(days=1)
+    display_nbm_str = display_nbm_time.strftime('%Y-%m-%d 01z')
 else:
     print("⏰ Active Session: WPC Day Shift (06z NBM QMD / 00z Global Package)")
     base_date = now - timedelta(days=1) if now.hour <= 1 else now
@@ -36,13 +40,17 @@ else:
     nbm_cycle = "06"
     mode = "06z_package"
     date_offsets = [3, 4, 5, 6, 7]
+    
+    # NEW: Operational Label Translation (06z NBM QMD -> 13z Same Day)
+    display_nbm_time = base_date
+    display_nbm_str = display_nbm_time.strftime('%Y-%m-%d 13z')
 
 global_init_time = base_date.strftime(f'%Y-%m-%d {global_cycle}:00')
 nbm_date_str = base_date.strftime('%Y-%m-%d')
 nbm_date_nomads = base_date.strftime('%Y%m%d') # For the URL formatting
 
 print(f"📊 Global Model Baseline Cycle: {global_init_time}")
-print(f"📊 NBM Baseline Cycle: {nbm_date_str} {nbm_cycle}:00")
+print(f"📊 NBM Baseline Cycle: {nbm_date_str} {nbm_cycle}:00 (Labeled as {display_nbm_str})")
 
 # CONUS Domain Setup
 lon_min, lon_max = -125.0, -65.0
@@ -68,7 +76,7 @@ for i in range(len(levels) - 1):
 
 custom_percentile_cmap = mcolors.ListedColormap(colors_b1)
 
-# THE FIX: Force "bad" (NaN) and "under" (out of bounds) values to be 100% transparent
+# Force "bad" (NaN) and "under" (out of bounds) values to be 100% transparent
 custom_percentile_cmap.set_bad(color='white', alpha=0)
 custom_percentile_cmap.set_under(color='white', alpha=0)
 
@@ -253,12 +261,12 @@ for offset in date_offsets:
     members_below_nbm = np.sum(super_matrix < nbm_regridded, axis=0)
     percentile_rank = (members_below_nbm / super_matrix.shape[0]) * 100
 
-    # THE MASK FIX: Use a strict NumPy Masked Array so contourf ignores missing pixels entirely
+    # Use a strict NumPy Masked Array so contourf ignores missing pixels entirely
     percentile_rank_masked = np.ma.masked_where(np.isnan(nbm_regridded), percentile_rank)
 
-    # Clean Explicit Titles
+    # NEW: Updated Explicit Titles with translated operational NBM string
     title_valid = f"Valid Date: {valid_date_str}"
-    title_inits = f"NBM Init: {nbm_date_str} {nbm_cycle}z | Ensemble Init: {global_init_time}"
+    title_inits = f"NBM Init: {display_nbm_str} | Ensemble Init: {global_init_time}"
 
     # --- PLOT 1: PERCENTILES WITH CUSTOM COLORMAP ---
     fig1 = plt.figure(figsize=(14, 9))
@@ -277,7 +285,10 @@ for offset in date_offsets:
     cbar1.ax.hlines([10, 25, 75, 90], 0, 1, colors='black', linewidth=1.5, linestyles='--')
     
     ax1.set_title(f"Max Temperature Percentile Rank (NBM vs Superensemble)\n{title_valid} | {title_inits}", fontsize=13, loc='left', weight='bold')
-    fig1.text(0.99, 0.01, f"Generated: {run_timestamp}", ha='right', va='bottom', fontsize=10, color='gray')
+    
+    # NEW: Anchoring the text stamp directly to the map axis (ax1) fixes the excessive white space!
+    ax1.text(1.15, -0.05, f"Generated: {run_timestamp}", transform=ax1.transAxes, ha='right', va='top', fontsize=10, color='gray')
+    
     fig1.savefig(f"output/day_{offset}_percentile.png", bbox_inches='tight', dpi=150)
 
     # --- PLOT 2: VERIFICATION PANELS ---
@@ -296,7 +307,9 @@ for offset in date_offsets:
     cbar2 = fig2.colorbar(cf, cax=cbar_ax, orientation='horizontal'); cbar2.set_label('Max Temperature (°F)', fontsize=14)
     fig2.suptitle(f"Input Verification Checklist: Max Temperature Forecast Mapping\n{title_valid} | {title_inits}", fontsize=15, weight='bold', y=0.96)
     
-    fig2.text(0.99, 0.01, f"Generated: {run_timestamp}", ha='right', va='bottom', fontsize=10, color='gray')
+    # Anchor to the bottom-right panel axis
+    axs[3].text(1.0, -0.15, f"Generated: {run_timestamp}", transform=axs[3].transAxes, ha='right', va='top', fontsize=10, color='gray')
+    
     fig2.savefig(f"output/day_{offset}_verification.png", bbox_inches='tight', dpi=150)
 
     # --- PLOT 3: 3-PANEL DIFFERENCE MAP ---
@@ -322,7 +335,6 @@ for offset in date_offsets:
         axs3[i].add_feature(cfeature.COASTLINE, linewidth=0.8)
         axs3[i].add_feature(cfeature.STATES, linewidth=0.4, linestyle="--")
         
-        # We mask the difference arrays here too to keep it clean!
         dataset_masked = np.ma.masked_where(np.isnan(nbm_regridded), dataset)
         
         cf3 = axs3[i].contourf(target_lons, target_lats, dataset_masked, levels=diff_levels, cmap=diff_cmap, transform=ccrs.PlateCarree(), extend='both')
@@ -334,7 +346,9 @@ for offset in date_offsets:
     cbar3.set_label('Temperature Difference (°F) [Positive/Red = NBM is Warmer]', fontsize=14)
     fig3.suptitle(f"Ensemble Bias Check: NBM QMD vs Global Means\n{title_valid} | {title_inits}", fontsize=15, weight='bold', y=0.98)
     
-    fig3.text(0.99, 0.01, f"Generated: {run_timestamp}", ha='right', va='bottom', fontsize=10, color='gray')
+    # Anchor to the bottom-right panel axis
+    axs3[2].text(1.0, -0.25, f"Generated: {run_timestamp}", transform=axs3[2].transAxes, ha='right', va='top', fontsize=10, color='gray')
+    
     fig3.savefig(f"output/day_{offset}_difference.png", bbox_inches='tight', dpi=150)
     
     plt.close('all')
