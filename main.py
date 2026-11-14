@@ -61,6 +61,7 @@ grid_lons = np.arange(lon_min, lon_max + 0.25, 0.25)
 target_lons, target_lats = np.meshgrid(grid_lons, grid_lats)
 
 # --- 3. COLORMAP ENGINES & GRID STANDARDIZATION ---
+# A) Percentile Colormap
 levels = np.arange(0, 105, 5)
 base_cmap = plt.cm.RdYlBu_r
 base_colors = base_cmap(np.linspace(0, 1, len(levels) - 1))
@@ -75,7 +76,18 @@ for i in range(len(levels) - 1):
 
 custom_percentile_cmap = mcolors.ListedColormap(colors_b1)
 custom_percentile_cmap.set_bad(color='white', alpha=0)
-custom_percentile_cmap.set_under(color='white', alpha=0)
+custom_percentile_cmap.set_under(colors_b1[0])
+custom_percentile_cmap.set_over(colors_b1[-1])
+
+# B) NWS Temperature Colormap (-60F to 120F)
+nws_hex = [
+    "#91234c", "#cf529b", "#f0a9df", "#dce1ee", "#a09ed1",
+    "#5a4299", "#13007a", "#3b67be", "#64aef2", "#9ae2ef",
+    "#4f8f8b", "#3a793a", "#7bbb70", "#d9f1a7", "#ffdf74",
+    "#f89b37", "#e43e26", "#8f121a", "#3b002b"
+]
+nws_temp_cmap = mcolors.LinearSegmentedColormap.from_list("nws_temp", nws_hex)
+nws_temp_cmap.set_bad(color='white', alpha=0)
 
 def standardize_grid(ds):
     var_key = list(ds.data_vars)[0]
@@ -95,7 +107,6 @@ def _fetch_single_gefs(member, fxx, search_string):
     return standardize_grid(ds)
 
 def get_gefs_by_fxx(members, fxx_hours, search_string, max_workers=24):
-    """Returns dict {member: {fxx: 2d_grid}} so synoptic hours can be reused."""
     data = {m: {} for m in members}
     tasks = [(m, fxx) for m in members for fxx in fxx_hours]
 
@@ -134,7 +145,6 @@ def _unpack_ecmwf_ds_list(ds_list):
     return ctrl, pert
 
 def get_ecmwf_synoptic_by_fxx(model_name, fxx_hours, search_string):
-    """Fetches all synoptic hours once and returns {fxx: (ctrl, pert)}."""
     by_fxx = {}
     for fxx in fxx_hours:
         try:
@@ -305,10 +315,12 @@ def render_package_plots(
         f"{stat_label} Temperature Percentile Rank (NBM vs Superensemble)\n{title_valid} | {title_inits}",
         fontsize=13, loc='left', weight='bold'
     )
-    ax1.text(1.15, -0.05, f"Generated: {run_timestamp}", transform=ax1.transAxes, ha='right', va='top', fontsize=10, color='gray')
-    fig1.savefig(f"output/day_{offset}_{file_prefix}percentile.png", bbox_inches='tight', dpi=150)
+    # Replaced bbox_inches='tight' with fixed subplots adjustments 
+    fig1.subplots_adjust(left=0.05, right=0.95, top=0.88, bottom=0.10)
+    fig1.text(0.98, 0.02, f"Generated: {run_timestamp}", ha='right', va='bottom', fontsize=10, color='gray')
+    fig1.savefig(f"output/day_{offset}_{file_prefix}percentile.png", dpi=150) 
 
-    # --- PLOT 2: VERIFICATION PANELS ---
+    # --- PLOT 2: VERIFICATION PANELS (Using NWS Color Curve) ---
     fig2, axs = plt.subplots(2, 2, figsize=(16, 11), subplot_kw={'projection': ccrs.LambertConformal(central_longitude=-96.0, central_latitude=39.2)})
     axs = axs.flatten()
     plot_data = [
@@ -322,18 +334,24 @@ def render_package_plots(
         axs[i].set_extent([lon_min, lon_max, lat_min, lat_max], crs=ccrs.PlateCarree())
         axs[i].add_feature(cfeature.COASTLINE, linewidth=0.8)
         axs[i].add_feature(cfeature.STATES, linewidth=0.4, linestyle="--")
-        cf = axs[i].contourf(target_lons, target_lats, dataset, levels=t_levels, cmap='turbo', transform=ccrs.PlateCarree(), extend='both')
+        # NWS Curve Anchored from -60 to 120
+        cf = axs[i].contourf(
+            target_lons, target_lats, dataset, levels=t_levels,
+            cmap=nws_temp_cmap, vmin=-60, vmax=120,
+            transform=ccrs.PlateCarree(), extend='both'
+        )
         axs[i].set_title(title, fontsize=12, weight='bold')
 
-    cbar_ax = fig2.add_axes([0.15, 0.05, 0.7, 0.02])
+    fig2.subplots_adjust(left=0.02, right=0.98, top=0.92, bottom=0.12, wspace=0.02, hspace=0.05)
+    cbar_ax = fig2.add_axes([0.15, 0.06, 0.7, 0.02])
     cbar2 = fig2.colorbar(cf, cax=cbar_ax, orientation='horizontal')
     cbar2.set_label(f'{stat_label} Temperature (°F)', fontsize=14)
     fig2.suptitle(
         f"Input Verification Checklist: {stat_label} Temperature Forecast Mapping\n{title_valid} | {title_inits}",
         fontsize=15, weight='bold', y=0.96
     )
-    axs[3].text(1.0, -0.15, f"Generated: {run_timestamp}", transform=axs[3].transAxes, ha='right', va='top', fontsize=10, color='gray')
-    fig2.savefig(f"output/day_{offset}_{file_prefix}verification.png", bbox_inches='tight', dpi=150)
+    fig2.text(0.98, 0.02, f"Generated: {run_timestamp}", ha='right', va='bottom', fontsize=10, color='gray')
+    fig2.savefig(f"output/day_{offset}_{file_prefix}verification.png", dpi=150)
 
     # --- PLOT 3: 3-PANEL DIFFERENCE MAP ---
     diff_levels = np.arange(-16, 18, 2)
@@ -354,16 +372,16 @@ def render_package_plots(
         cf3 = axs3[i].contourf(target_lons, target_lats, dataset_masked, levels=diff_levels, cmap='RdBu_r', transform=ccrs.PlateCarree(), extend='both')
         axs3[i].set_title(title, fontsize=12, weight='bold')
 
-    fig3.subplots_adjust(bottom=0.15)
-    cbar_ax3 = fig3.add_axes([0.15, 0.05, 0.7, 0.03])
+    fig3.subplots_adjust(left=0.02, right=0.98, top=0.88, bottom=0.15, wspace=0.02)
+    cbar_ax3 = fig3.add_axes([0.15, 0.06, 0.7, 0.03])
     cbar3 = fig3.colorbar(cf3, cax=cbar_ax3, orientation='horizontal')
     cbar3.set_label('Temperature Difference (°F) [Positive/Red = NBM is Warmer]', fontsize=14)
     fig3.suptitle(
         f"Ensemble Bias Check ({stat_label}T): NBM QMD vs Global Means\n{title_valid} | {title_inits}",
         fontsize=15, weight='bold', y=0.98
     )
-    axs3[2].text(1.0, -0.25, f"Generated: {run_timestamp}", transform=axs3[2].transAxes, ha='right', va='top', fontsize=10, color='gray')
-    fig3.savefig(f"output/day_{offset}_{file_prefix}difference.png", bbox_inches='tight', dpi=150)
+    fig3.text(0.98, 0.02, f"Generated: {run_timestamp}", ha='right', va='bottom', fontsize=10, color='gray')
+    fig3.savefig(f"output/day_{offset}_{file_prefix}difference.png", dpi=150)
 
     plt.close('all')
 
@@ -378,23 +396,22 @@ for offset in date_offsets:
     print(f"\n🚀 Processing Forecast Package for Valid Date: {valid_date_str}")
 
     if mode == "18z_package":
-        nbm_fxx_max = offset * 24 + 12  # Valid 12z Day D -> 06z Day D+1
-        nbm_fxx_min = offset * 24       # Valid 00z Day D -> 18z Day D
-        global_base_fxx = offset * 24   # 12z Day D
+        nbm_fxx_max = offset * 24 + 12  
+        nbm_fxx_min = offset * 24       
+        global_base_fxx = offset * 24   
         fxx_synop_max = [global_base_fxx, global_base_fxx + 6, global_base_fxx + 12, global_base_fxx + 18]
         fxx_synop_min = [global_base_fxx - 12, global_base_fxx - 6, global_base_fxx, global_base_fxx + 6]
     else:
-        nbm_fxx_max = offset * 24 + 24  # Valid 12z Day D -> 06z Day D+1
-        nbm_fxx_min = offset * 24 + 12  # Valid 00z Day D -> 18z Day D
-        global_base_fxx = offset * 24   # 00z Day D
+        nbm_fxx_max = offset * 24 + 24  
+        nbm_fxx_min = offset * 24 + 12  
+        global_base_fxx = offset * 24   
         fxx_synop_max = [global_base_fxx + 12, global_base_fxx + 18, global_base_fxx + 24, global_base_fxx + 30]
         fxx_synop_min = [global_base_fxx, global_base_fxx + 6, global_base_fxx + 12, global_base_fxx + 18]
 
-    fxx_period_max = fxx_synop_max[1:]  # Strictly 12z-06z
-    fxx_period_min = fxx_synop_min[1:]  # Strictly 00z-18z
+    fxx_period_max = fxx_synop_max[1:]  
+    fxx_period_min = fxx_synop_min[1:]  
     all_synop_fxx = sorted(set(fxx_synop_max + fxx_synop_min))
 
-    # Concurrently fetch MaxT, MinT, and shared synoptic fields
     with concurrent.futures.ThreadPoolExecutor(max_workers=7) as model_exec:
         fut_gefs_tmax = model_exec.submit(get_gefs_by_fxx, all_gefs_members, fxx_period_max, ":TMAX:2 m", 24)
         fut_gefs_tmin = model_exec.submit(get_gefs_by_fxx, all_gefs_members, fxx_period_min, ":TMIN:2 m", 24)
