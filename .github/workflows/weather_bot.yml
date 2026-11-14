@@ -39,7 +39,7 @@ jobs:
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action Bot"
-          git add output/*.png
+          git add output/
           # If no changes were made, don't crash the action
           git commit -m "Automated update: NBM vs Superensemble Maps" || echo "No changes to commit"
           git push
