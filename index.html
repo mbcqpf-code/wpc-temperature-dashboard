@@ -20,75 +20,74 @@
             text-align: center;
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
         }
-        
         header h1 { margin: 0; font-size: 1.8rem; letter-spacing: 0.5px; }
-        header p { margin: 8px 0 0 0; color: #94a3b8; font-size: 0.95rem; }
-
-        /* Loading Indicator */
-        #loading {
-            text-align: center;
-            padding: 40px;
-            font-size: 1.1rem;
-            color: #64748b;
-            font-weight: 500;
-        }
+        header p { margin: 6px 0 0 0; color: #94a3b8; font-size: 0.92rem; }
 
         .nav-container {
             display: flex;
             justify-content: center;
             flex-wrap: wrap;
-            gap: 12px;
-            padding: 20px;
+            gap: 10px;
+            padding: 18px 20px;
             background: white;
             border-bottom: 1px solid #e2e8f0;
         }
-        
         .nav-btn {
-            padding: 12px 24px;
-            border: 2px solid transparent;
-            background: #f8fafc;
+            padding: 10px 20px;
+            border: none;
+            background: #e2e8f0;
             color: #475569;
-            font-size: 1rem;
+            font-size: 0.95rem;
             font-weight: 600;
             cursor: pointer;
-            border-radius: 8px;
+            border-radius: 6px;
             transition: all 0.2s ease;
-            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
         }
-        
-        .nav-btn:hover:not(.active) { 
-            background: #f1f5f9;
-            border-color: #cbd5e1;
-        }
-        
-        .nav-btn.active { 
-            background: #2563eb; 
-            color: white; 
-            border-color: #2563eb;
-            box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.3); 
+        .nav-btn:hover:not(.active) { background: #cbd5e1; }
+        .nav-btn.active {
+            background: #2563eb;
+            color: white;
+            box-shadow: 0 2px 4px rgba(37, 99, 235, 0.3);
         }
 
-        .panel { display: none; padding: 30px; max-width: 1600px; margin: 0 auto; animation: fadeIn 0.4s; }
+        .status-msg {
+            text-align: center;
+            padding: 60px 20px;
+            color: #64748b;
+            font-size: 1.05rem;
+            font-weight: 500;
+        }
+
+        .panel {
+            display: none;
+            padding: 30px;
+            max-width: 1600px;
+            margin: 0 auto;
+            animation: fadeIn 0.3s ease;
+        }
         .panel.active { display: block; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
         .image-grid {
             display: flex;
-            gap: 30px;
+            gap: 24px;
             justify-content: center;
             flex-wrap: wrap;
         }
-        
         .image-card {
             flex: 1;
-            min-width: 500px;
+            min-width: 480px;
             background: white;
             padding: 15px;
             border-radius: 12px;
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
             text-align: center;
+            box-sizing: border-box;
         }
-        
+        .image-card.full-width {
+            width: 100%;
+            margin-top: 24px;
+        }
         .image-card img {
             width: 100%;
             height: auto;
@@ -96,13 +95,11 @@
             cursor: pointer;
             transition: transform 0.2s ease, box-shadow 0.2s ease;
         }
-        
         .image-card img:hover {
             transform: translateY(-2px);
             box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
         }
 
-        /* Lightbox Modal */
         .modal {
             display: none;
             position: fixed;
@@ -116,18 +113,16 @@
             justify-content: center;
             flex-direction: column;
         }
-        
         .modal-content {
             max-width: 95%;
             max-height: 90vh;
             border-radius: 4px;
             box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-            animation: zoomIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-            cursor: default; /* Keep default cursor for image itself */
+            animation: zoomIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+            cursor: default;
         }
-        
         @keyframes zoomIn { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
-        
+
         .close {
             position: absolute;
             top: 20px;
@@ -138,13 +133,12 @@
             cursor: pointer;
             transition: color 0.2s;
         }
-        
         .close:hover { color: #ef4444; }
         .modal-hint { color: #94a3b8; margin-top: 15px; font-size: 0.9rem; }
 
         @media (max-width: 768px) {
             .image-card { min-width: 100%; }
-            .nav-btn { width: 100%; }
+            .panel { padding: 16px; }
         }
     </style>
 </head>
@@ -152,145 +146,133 @@
 
     <header>
         <h1>WPC Superensemble vs NBM</h1>
-        <p id="headerMeta">Loading operational data...</p>
+        <p id="metaSubtitle">Loading operational forecast metadata...</p>
     </header>
 
-    <div id="loading">Syncing latest forecast cycle...</div>
+    <div class="nav-container" id="tabs"></div>
+    <div id="panels"></div>
 
-    <div class="nav-container" id="tabs" style="display: none;">
-        <!-- Tabs injected here -->
-    </div>
-
-    <div id="panels">
-        <!-- Panels injected here -->
-    </div>
-
-    <!-- The onclick handler here acts as the backdrop click-to-close feature -->
     <div id="imageModal" class="modal" onclick="closeModal(event)">
         <span class="close" onclick="closeModal(event)">&times;</span>
-        <img class="modal-content" id="enlargedImg">
-        <div class="modal-hint">Click outside the image to close</div>
+        <img class="modal-content" id="enlargedImg" alt="Enlarged Forecast Map">
+        <div class="modal-hint">Click outside image or press ESC to close</div>
     </div>
 
     <script>
         const now = new Date();
+        const utcHour = now.getUTCHours();
+        const utcMinute = now.getUTCMinutes();
         const cacheBuster = `?v=${now.getTime()}`;
+
         const tabsContainer = document.getElementById('tabs');
         const panelsContainer = document.getElementById('panels');
-        const loadingIndicator = document.getElementById('loading');
-        
-        let loadedOffsets = [];
-        let validDatesMap = {};
+        const metaSubtitle = document.getElementById('metaSubtitle');
+        const modal = document.getElementById('imageModal');
+        const modalImg = document.getElementById('enlargedImg');
 
-        // 1. Fallback Logic: Shift Time Calculator (in case JSON is missing)
-        function getFallbackOffsets() {
-            const utcHour = now.getUTCHours();
-            const utcMinute = now.getUTCMinutes();
-            if ((utcHour === 1 && utcMinute > 30) || (utcHour >= 2 && utcHour <= 12) || (utcHour === 13 && utcMinute <= 30)) {
-                return [4, 5, 6, 7, 8];
-            } else {
-                return [3, 4, 5, 6, 7];
+        let loadedOffsets = [];
+
+        function getFallbackEntries() {
+            const isNightShift = (utcHour === 1 && utcMinute > 30) || (utcHour >= 2 && utcHour <= 12) || (utcHour === 13 && utcMinute <= 30);
+            const offsets = isNightShift ? [4, 5, 6, 7, 8] : [3, 4, 5, 6, 7];
+            const baseDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+            if (isNightShift || utcHour <= 1) {
+                baseDate.setUTCDate(baseDate.getUTCDate() - 1);
             }
+            return offsets.map(offset => {
+                const d = new Date(baseDate);
+                d.setUTCDate(d.getUTCDate() + offset);
+                const label = d.toLocaleDateString('en-US', {
+                    weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC'
+                });
+                return { offset, label };
+            });
         }
 
-        // 2. Async Image Check
-        const checkImage = (offset) => {
+        function checkImage(entry) {
             return new Promise((resolve) => {
                 const imgTester = new Image();
-                imgTester.onload = () => resolve(offset);
+                imgTester.onload = () => resolve(entry);
                 imgTester.onerror = () => resolve(null);
-                imgTester.src = `output/day_${offset}_percentile.png${cacheBuster}`;
+                imgTester.src = `output/day_${entry.offset}_percentile.png${cacheBuster}`;
             });
-        };
+        }
 
-        // 3. Main Init Function tied to manifest.json
         async function initDashboard() {
-            let targetOffsets = getFallbackOffsets();
+            let entries = getFallbackEntries();
 
             try {
-                const response = await fetch(`output/manifest.json${cacheBuster}`);
-                if (response.ok) {
-                    const manifest = await response.json();
-                    if (manifest.offsets && manifest.offsets.length > 0) {
-                        targetOffsets = manifest.offsets;
+                const res = await fetch(`output/manifest.json${cacheBuster}`);
+                if (res.ok) {
+                    const manifest = await res.json();
+                    if (manifest.global_init && manifest.nbm_init) {
+                        const updatedPart = manifest.run_timestamp ? ` | Generated: ${manifest.run_timestamp}` : '';
+                        metaSubtitle.textContent = `Ensemble Init: ${manifest.global_init} | NBM Base: ${manifest.nbm_init}${updatedPart}`;
                     }
-                    if (manifest.valid_dates) {
-                        validDatesMap = manifest.valid_dates;
-                    }
-                    if (manifest.nbm_init && manifest.global_init) {
-                        document.getElementById('headerMeta').innerText = `Ensemble Init: ${manifest.global_init} | NBM Base: ${manifest.nbm_init}`;
+                    if (Array.isArray(manifest.offsets) && manifest.offsets.length > 0) {
+                        entries = manifest.offsets.map(item =>
+                            typeof item === 'object' && item !== null
+                                ? { offset: item.offset, label: item.valid_date || `Day +${item.offset}` }
+                                : { offset: item, label: `Day +${item}` }
+                        );
                     }
                 }
-            } catch (err) {
-                console.warn("Could not load manifest.json, falling back to local clock shift detection.");
-                document.getElementById('headerMeta').innerText = "Live Verification Viewer";
+            } catch (_) {
+                metaSubtitle.textContent = 'Displaying active operational window';
             }
 
-            const results = await Promise.all(targetOffsets.map(checkImage));
-            let loadedCount = 0;
-            let firstLoadedOffset = null;
+            const results = await Promise.all(entries.map(checkImage));
+            const validEntries = results.filter(item => item !== null);
 
-            results.forEach(offset => {
-                if (offset !== null) {
-                    loadedCount++;
-                    loadedOffsets.push(offset);
-                    
-                    const img1Src = `output/day_${offset}_percentile.png${cacheBuster}`;
-                    const img2Src = `output/day_${offset}_verification.png${cacheBuster}`;
-                    const img3Src = `output/day_${offset}_difference.png${cacheBuster}`;
+            if (validEntries.length === 0) {
+                panelsContainer.innerHTML = `<div class="status-msg">No operational outputs are available for this shift yet. Please check back later.</div>`;
+                return;
+            }
 
-                    // Extract Valid Date if available, otherwise default to target counting
-                    const labelText = validDatesMap[offset] ? validDatesMap[offset] : `Forecast Target ${loadedCount}`;
+            validEntries.forEach((entry, idx) => {
+                const { offset, label } = entry;
+                loadedOffsets.push(offset);
 
-                    // Create Nav Button
-                    const btn = document.createElement('button');
-                    btn.className = 'nav-btn';
-                    btn.id = `btn-${offset}`;
-                    btn.innerText = labelText;
-                    btn.onclick = () => activateTab(offset);
-                    tabsContainer.appendChild(btn);
+                const img1Src = `output/day_${offset}_percentile.png${cacheBuster}`;
+                const img2Src = `output/day_${offset}_verification.png${cacheBuster}`;
+                const img3Src = `output/day_${offset}_difference.png${cacheBuster}`;
 
-                    // Create Content Panel
-                    const panel = document.createElement('div');
-                    panel.className = 'panel';
-                    panel.id = `panel-${offset}`;
+                const btn = document.createElement('button');
+                btn.className = 'nav-btn';
+                btn.id = `btn-${offset}`;
+                btn.innerText = label;
+                btn.onclick = () => activateTab(offset);
+                tabsContainer.appendChild(btn);
 
-                    const grid = document.createElement('div');
-                    grid.className = 'image-grid';
+                const panel = document.createElement('div');
+                panel.className = 'panel';
+                panel.id = `panel-${offset}`;
 
-                    const card1 = document.createElement('div');
-                    card1.className = 'image-card';
-                    card1.innerHTML = `<img src="${img1Src}" alt="Percentile Map" onclick="openModal(this.src)">`;
-                    
-                    const card2 = document.createElement('div');
-                    card2.className = 'image-card';
-                    card2.innerHTML = `<img src="${img2Src}" alt="Verification Map" onclick="openModal(this.src)">`;
+                const grid = document.createElement('div');
+                grid.className = 'image-grid';
 
-                    const card3 = document.createElement('div');
-                    card3.className = 'image-card';
-                    card3.style.width = '100%';
-                    card3.style.marginTop = '30px';
-                    card3.innerHTML = `<img src="${img3Src}" alt="Difference Map" onclick="openModal(this.src)">`;
+                const card1 = document.createElement('div');
+                card1.className = 'image-card';
+                card1.innerHTML = `<img src="${img1Src}" alt="Percentile Map - ${label}" onclick="openModal(this.src)">`;
 
-                    grid.appendChild(card1);
-                    grid.appendChild(card2);
-                    panel.appendChild(grid);
-                    panel.appendChild(card3);
-                    panelsContainer.appendChild(panel);
+                const card2 = document.createElement('div');
+                card2.className = 'image-card';
+                card2.innerHTML = `<img src="${img2Src}" alt="Verification Map - ${label}" onclick="openModal(this.src)">`;
 
-                    if (!firstLoadedOffset) firstLoadedOffset = offset;
+                const card3 = document.createElement('div');
+                card3.className = 'image-card full-width';
+                card3.innerHTML = `<img src="${img3Src}" alt="Difference Map - ${label}" onclick="openModal(this.src)">`;
+
+                grid.appendChild(card1);
+                grid.appendChild(card2);
+                panel.appendChild(grid);
+                panel.appendChild(card3);
+                panelsContainer.appendChild(panel);
+
+                if (idx === 0) {
+                    activateTab(offset);
                 }
             });
-
-            loadingIndicator.style.display = 'none';
-            
-            if (firstLoadedOffset) {
-                tabsContainer.style.display = 'flex';
-                activateTab(firstLoadedOffset);
-            } else {
-                loadingIndicator.style.display = 'block';
-                loadingIndicator.innerText = "No operational outputs are available for this shift yet. Please check back later.";
-            }
         }
 
         function activateTab(targetOffset) {
@@ -300,49 +282,37 @@
             document.getElementById(`btn-${targetOffset}`).classList.add('active');
         }
 
-        // --- Lightbox & Event Listeners ---
-        const modal = document.getElementById('imageModal');
-        const modalImg = document.getElementById('enlargedImg');
-
         function openModal(src) {
             modal.style.display = 'flex';
             modalImg.src = src;
         }
 
         function closeModal(event) {
-            // Guard clause prevents the modal from closing if they click ON the enlarged image itself
             if (event && event.target && event.target.id === 'enlargedImg') return;
             modal.style.display = 'none';
         }
 
         document.addEventListener('keydown', function(event) {
-            if (event.key === "Escape") {
+            if (event.key === 'Escape') {
                 modal.style.display = 'none';
                 return;
             }
+            if (modal.style.display === 'flex' || loadedOffsets.length === 0) return;
 
-            if (modal.style.display === 'flex') return;
+            const activeBtn = document.querySelector('.nav-btn.active');
+            if (!activeBtn) return;
 
-            if (loadedOffsets.length > 0) {
-                const activeBtn = document.querySelector('.nav-btn.active');
-                if (activeBtn) {
-                    const currentOffset = parseInt(activeBtn.id.replace('btn-', ''));
-                    const currentIndex = loadedOffsets.indexOf(currentOffset);
+            const currentOffset = parseInt(activeBtn.id.replace('btn-', ''), 10);
+            const currentIndex = loadedOffsets.indexOf(currentOffset);
+            if (currentIndex === -1) return;
 
-                    if (currentIndex !== -1) {
-                        if (event.key === "ArrowRight") {
-                            const nextIndex = (currentIndex + 1) % loadedOffsets.length;
-                            activateTab(loadedOffsets[nextIndex]);
-                        } else if (event.key === "ArrowLeft") {
-                            const prevIndex = (currentIndex - 1 + loadedOffsets.length) % loadedOffsets.length;
-                            activateTab(loadedOffsets[prevIndex]);
-                        }
-                    }
-                }
+            if (event.key === 'ArrowRight') {
+                activateTab(loadedOffsets[(currentIndex + 1) % loadedOffsets.length]);
+            } else if (event.key === 'ArrowLeft') {
+                activateTab(loadedOffsets[(currentIndex - 1 + loadedOffsets.length) % loadedOffsets.length]);
             }
         });
 
-        // Bootstrap on load
         initDashboard();
     </script>
 </body>
