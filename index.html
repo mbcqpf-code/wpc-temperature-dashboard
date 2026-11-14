@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WPC Temperature Extremes Dashboard</title>
     <style>
-        /* Base and Typography */
         body {
             font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
             background-color: #f1f5f9;
@@ -14,7 +13,6 @@
             padding: 0;
         }
 
-        /* Header Styling */
         header {
             background-color: #0f172a;
             color: white;
@@ -22,45 +20,65 @@
             text-align: center;
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
         }
+        
         header h1 { margin: 0; font-size: 1.8rem; letter-spacing: 0.5px; }
-        header p { margin: 5px 0 0 0; color: #94a3b8; font-size: 0.9rem; }
+        header p { margin: 8px 0 0 0; color: #94a3b8; font-size: 0.95rem; }
 
-        /* Navigation Tabs */
+        /* Loading Indicator */
+        #loading {
+            text-align: center;
+            padding: 40px;
+            font-size: 1.1rem;
+            color: #64748b;
+            font-weight: 500;
+        }
+
         .nav-container {
             display: flex;
             justify-content: center;
             flex-wrap: wrap;
-            gap: 10px;
+            gap: 12px;
             padding: 20px;
             background: white;
             border-bottom: 1px solid #e2e8f0;
         }
+        
         .nav-btn {
-            padding: 10px 24px;
-            border: none;
-            background: #e2e8f0;
+            padding: 12px 24px;
+            border: 2px solid transparent;
+            background: #f8fafc;
             color: #475569;
             font-size: 1rem;
             font-weight: 600;
             cursor: pointer;
-            border-radius: 6px;
+            border-radius: 8px;
             transition: all 0.2s ease;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
         }
-        .nav-btn:hover:not(.active) { background: #cbd5e1; }
-        .nav-btn.active { background: #2563eb; color: white; box-shadow: 0 2px 4px rgba(37, 99, 235, 0.3); }
+        
+        .nav-btn:hover:not(.active) { 
+            background: #f1f5f9;
+            border-color: #cbd5e1;
+        }
+        
+        .nav-btn.active { 
+            background: #2563eb; 
+            color: white; 
+            border-color: #2563eb;
+            box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.3); 
+        }
 
-        /* Content Panels */
         .panel { display: none; padding: 30px; max-width: 1600px; margin: 0 auto; animation: fadeIn 0.4s; }
         .panel.active { display: block; }
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
 
-        /* Side-by-Side Image Layout */
         .image-grid {
             display: flex;
             gap: 30px;
             justify-content: center;
             flex-wrap: wrap;
         }
+        
         .image-card {
             flex: 1;
             min-width: 500px;
@@ -70,6 +88,7 @@
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
             text-align: center;
         }
+        
         .image-card img {
             width: 100%;
             height: auto;
@@ -77,6 +96,7 @@
             cursor: pointer;
             transition: transform 0.2s ease, box-shadow 0.2s ease;
         }
+        
         .image-card img:hover {
             transform: translateY(-2px);
             box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
@@ -96,13 +116,16 @@
             justify-content: center;
             flex-direction: column;
         }
+        
         .modal-content {
             max-width: 95%;
             max-height: 90vh;
             border-radius: 4px;
             box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
             animation: zoomIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            cursor: default; /* Keep default cursor for image itself */
         }
+        
         @keyframes zoomIn { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
         
         .close {
@@ -115,56 +138,62 @@
             cursor: pointer;
             transition: color 0.2s;
         }
+        
         .close:hover { color: #ef4444; }
         .modal-hint { color: #94a3b8; margin-top: 15px; font-size: 0.9rem; }
 
-        /* Mobile responsiveness */
         @media (max-width: 768px) {
             .image-card { min-width: 100%; }
+            .nav-btn { width: 100%; }
         }
     </style>
 </head>
 <body>
 
     <header>
-        <h1>WPC Superensemble vs NBM </h1>
+        <h1>WPC Superensemble vs NBM</h1>
+        <p id="headerMeta">Loading operational data...</p>
     </header>
 
-    <div class="nav-container" id="tabs">
-        </div>
+    <div id="loading">Syncing latest forecast cycle...</div>
+
+    <div class="nav-container" id="tabs" style="display: none;">
+        <!-- Tabs injected here -->
+    </div>
 
     <div id="panels">
-        </div>
+        <!-- Panels injected here -->
+    </div>
 
+    <!-- The onclick handler here acts as the backdrop click-to-close feature -->
     <div id="imageModal" class="modal" onclick="closeModal(event)">
         <span class="close" onclick="closeModal(event)">&times;</span>
         <img class="modal-content" id="enlargedImg">
-        <div class="modal-hint">Click anywhere to close</div>
+        <div class="modal-hint">Click outside the image to close</div>
     </div>
 
-<script>
-        // 1. DYNAMIC SHIFT DETECTOR
+    <script>
         const now = new Date();
-        const utcHour = now.getUTCHours();
-        const utcMinute = now.getUTCMinutes();
-        let targetOffsets = [];
-        
-        // NEW: Array to track which offsets successfully loaded images
-        let loadedOffsets = [];
-
-        // 01:31z to 13:30z -> Night Shift (18z NBM) -> Offsets 4 through 8
-        if ((utcHour === 1 && utcMinute > 30) || (utcHour >= 2 && utcHour <= 12) || (utcHour === 13 && utcMinute <= 30)) {
-            targetOffsets = [4, 5, 6, 7, 8];
-        } else {
-            // 13:31z to 01:30z -> Day Shift (06z NBM) -> Offsets 3 through 7
-            targetOffsets = [3, 4, 5, 6, 7];
-        }
-
+        const cacheBuster = `?v=${now.getTime()}`;
         const tabsContainer = document.getElementById('tabs');
         const panelsContainer = document.getElementById('panels');
-        const cacheBuster = `?v=${now.getTime()}`;
+        const loadingIndicator = document.getElementById('loading');
+        
+        let loadedOffsets = [];
+        let validDatesMap = {};
 
-        // 2. THE ASYNC CHECKER
+        // 1. Fallback Logic: Shift Time Calculator (in case JSON is missing)
+        function getFallbackOffsets() {
+            const utcHour = now.getUTCHours();
+            const utcMinute = now.getUTCMinutes();
+            if ((utcHour === 1 && utcMinute > 30) || (utcHour >= 2 && utcHour <= 12) || (utcHour === 13 && utcMinute <= 30)) {
+                return [4, 5, 6, 7, 8];
+            } else {
+                return [3, 4, 5, 6, 7];
+            }
+        }
+
+        // 2. Async Image Check
         const checkImage = (offset) => {
             return new Promise((resolve) => {
                 const imgTester = new Image();
@@ -174,30 +203,54 @@
             });
         };
 
-        // 3. STRICT CHRONOLOGICAL BUILDER[cite: 2]
-        Promise.all(targetOffsets.map(checkImage)).then(results => {
+        // 3. Main Init Function tied to manifest.json
+        async function initDashboard() {
+            let targetOffsets = getFallbackOffsets();
+
+            try {
+                const response = await fetch(`output/manifest.json${cacheBuster}`);
+                if (response.ok) {
+                    const manifest = await response.json();
+                    if (manifest.offsets && manifest.offsets.length > 0) {
+                        targetOffsets = manifest.offsets;
+                    }
+                    if (manifest.valid_dates) {
+                        validDatesMap = manifest.valid_dates;
+                    }
+                    if (manifest.nbm_init && manifest.global_init) {
+                        document.getElementById('headerMeta').innerText = `Ensemble Init: ${manifest.global_init} | NBM Base: ${manifest.nbm_init}`;
+                    }
+                }
+            } catch (err) {
+                console.warn("Could not load manifest.json, falling back to local clock shift detection.");
+                document.getElementById('headerMeta').innerText = "Live Verification Viewer";
+            }
+
+            const results = await Promise.all(targetOffsets.map(checkImage));
             let loadedCount = 0;
             let firstLoadedOffset = null;
 
             results.forEach(offset => {
                 if (offset !== null) {
                     loadedCount++;
-                    // NEW: Store successful offsets to enable arrow key navigation
                     loadedOffsets.push(offset);
                     
                     const img1Src = `output/day_${offset}_percentile.png${cacheBuster}`;
                     const img2Src = `output/day_${offset}_verification.png${cacheBuster}`;
                     const img3Src = `output/day_${offset}_difference.png${cacheBuster}`;
 
-                    // Create the Button[cite: 2]
+                    // Extract Valid Date if available, otherwise default to target counting
+                    const labelText = validDatesMap[offset] ? validDatesMap[offset] : `Forecast Target ${loadedCount}`;
+
+                    // Create Nav Button
                     const btn = document.createElement('button');
                     btn.className = 'nav-btn';
                     btn.id = `btn-${offset}`;
-                    btn.innerText = `Forecast Target ${loadedCount}`;
+                    btn.innerText = labelText;
                     btn.onclick = () => activateTab(offset);
                     tabsContainer.appendChild(btn);
 
-                    // Create the Panel[cite: 2]
+                    // Create Content Panel
                     const panel = document.createElement('div');
                     panel.className = 'panel';
                     panel.id = `panel-${offset}`;
@@ -205,17 +258,14 @@
                     const grid = document.createElement('div');
                     grid.className = 'image-grid';
 
-                    // Percentile Card[cite: 2]
                     const card1 = document.createElement('div');
                     card1.className = 'image-card';
                     card1.innerHTML = `<img src="${img1Src}" alt="Percentile Map" onclick="openModal(this.src)">`;
                     
-                    // Verification Card[cite: 2]
                     const card2 = document.createElement('div');
                     card2.className = 'image-card';
                     card2.innerHTML = `<img src="${img2Src}" alt="Verification Map" onclick="openModal(this.src)">`;
 
-                    // Difference Map Card[cite: 2]
                     const card3 = document.createElement('div');
                     card3.className = 'image-card';
                     card3.style.width = '100%';
@@ -228,16 +278,21 @@
                     panel.appendChild(card3);
                     panelsContainer.appendChild(panel);
 
-                    // Automatically activate the very first valid tab it finds[cite: 2]
-                    if (!firstLoadedOffset) {
-                        firstLoadedOffset = offset;
-                        activateTab(firstLoadedOffset);
-                    }
+                    if (!firstLoadedOffset) firstLoadedOffset = offset;
                 }
             });
-        });
 
-        // Tab Switching Logic[cite: 2]
+            loadingIndicator.style.display = 'none';
+            
+            if (firstLoadedOffset) {
+                tabsContainer.style.display = 'flex';
+                activateTab(firstLoadedOffset);
+            } else {
+                loadingIndicator.style.display = 'block';
+                loadingIndicator.innerText = "No operational outputs are available for this shift yet. Please check back later.";
+            }
+        }
+
         function activateTab(targetOffset) {
             document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
             document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
@@ -245,7 +300,7 @@
             document.getElementById(`btn-${targetOffset}`).classList.add('active');
         }
 
-        // Lightbox Logic[cite: 2]
+        // --- Lightbox & Event Listeners ---
         const modal = document.getElementById('imageModal');
         const modalImg = document.getElementById('enlargedImg');
 
@@ -255,22 +310,20 @@
         }
 
         function closeModal(event) {
+            // Guard clause prevents the modal from closing if they click ON the enlarged image itself
+            if (event && event.target && event.target.id === 'enlargedImg') return;
             modal.style.display = 'none';
         }
 
-        // 4. UPDATED EVENT LISTENER WITH KEYBOARD SHORTCUTS
         document.addEventListener('keydown', function(event) {
-            // Existing logic to close the modal[cite: 2]
             if (event.key === "Escape") {
                 modal.style.display = 'none';
                 return;
             }
 
-            // Prevent arrow keys from cycling tabs if the image modal is open
             if (modal.style.display === 'flex') return;
 
             if (loadedOffsets.length > 0) {
-                // Find the currently active tab ID
                 const activeBtn = document.querySelector('.nav-btn.active');
                 if (activeBtn) {
                     const currentOffset = parseInt(activeBtn.id.replace('btn-', ''));
@@ -278,11 +331,9 @@
 
                     if (currentIndex !== -1) {
                         if (event.key === "ArrowRight") {
-                            // Move to the next tab, loop back to the beginning if at the end
                             const nextIndex = (currentIndex + 1) % loadedOffsets.length;
                             activateTab(loadedOffsets[nextIndex]);
                         } else if (event.key === "ArrowLeft") {
-                            // Move to the previous tab, loop to the end if at the beginning
                             const prevIndex = (currentIndex - 1 + loadedOffsets.length) % loadedOffsets.length;
                             activateTab(loadedOffsets[prevIndex]);
                         }
@@ -290,6 +341,9 @@
                 }
             }
         });
+
+        // Bootstrap on load
+        initDashboard();
     </script>
 </body>
 </html>
