@@ -32,8 +32,8 @@ if (now.hour == 1 and now.minute > 30) or (2 <= now.hour <= 12) or (now.hour == 
     global_cycle = "12"
     nbm_cycle = "18"
     mode = "18z_package"
-    date_offsets = [4, 5, 6, 7, 8] 
-    
+    date_offsets = [4, 5, 6, 7, 8]
+
     display_nbm_time = base_date + timedelta(days=1)
     display_nbm_str = display_nbm_time.strftime('%Y-%m-%d 01z')
 else:
@@ -43,13 +43,13 @@ else:
     nbm_cycle = "06"
     mode = "06z_package"
     date_offsets = [3, 4, 5, 6, 7]
-    
+
     display_nbm_time = base_date
     display_nbm_str = display_nbm_time.strftime('%Y-%m-%d 13z')
 
 global_init_time = base_date.strftime(f'%Y-%m-%d {global_cycle}:00')
 nbm_date_str = base_date.strftime('%Y-%m-%d')
-nbm_date_nomads = base_date.strftime('%Y%m%d') 
+nbm_date_nomads = base_date.strftime('%Y%m%d')
 
 print(f"📊 Global Model Baseline Cycle: {global_init_time}")
 print(f"📊 NBM Baseline Cycle: {nbm_date_str} {nbm_cycle}:00 (Labeled as {display_nbm_str})")
@@ -71,7 +71,7 @@ for i in range(len(levels) - 1):
     val = levels[i]
     if 25 <= val < 75:
         colors_b1[i] = colors_b1[i] * 0.30 + white * 0.70
-        colors_b1[i][3] = 1.0  
+        colors_b1[i][3] = 1.0
 
 custom_percentile_cmap = mcolors.ListedColormap(colors_b1)
 custom_percentile_cmap.set_bad(color='white', alpha=0)
@@ -94,8 +94,9 @@ def _fetch_single_gefs(member, fxx, search_string):
     ds = H.xarray(search_string)
     return standardize_grid(ds)
 
-def get_gefs_ensemble_grids(members, fxx_hours, search_string, max_workers=20):
-    member_grids = {m: [] for m in members}
+def get_gefs_by_fxx(members, fxx_hours, search_string, max_workers=24):
+    """Returns dict {member: {fxx: 2d_grid}} so synoptic hours can be reused."""
+    data = {m: {} for m in members}
     tasks = [(m, fxx) for m in members for fxx in fxx_hours]
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -106,85 +107,116 @@ def get_gefs_ensemble_grids(members, fxx_hours, search_string, max_workers=20):
         for future in concurrent.futures.as_completed(future_to_key):
             m, fxx = future_to_key[future]
             try:
-                member_grids[m].append(future.result())
+                data[m][fxx] = future.result()
             except Exception as e:
                 print(f"⚠️ GEFS {m} f{fxx:03d} ({search_string}) failed: {e}")
+    return data
 
+def aggregate_gefs_members(gefs_by_fxx, members, fxx_hours, agg="max"):
+    fn = np.max if agg == "max" else np.min
     results = {}
-    for m, grids in member_grids.items():
+    for m in members:
+        grids = [gefs_by_fxx[m][f] for f in fxx_hours if f in gefs_by_fxx.get(m, {})]
         if len(grids) == len(fxx_hours):
-            results[m] = np.max(np.stack(grids), axis=0)
+            results[m] = fn(np.stack(grids), axis=0)
     return results
 
-def _unpack_ecmwf_ds_list(ds_list, pert_grids, ctrl_grids):
+def _unpack_ecmwf_ds_list(ds_list):
     if not isinstance(ds_list, list):
         ds_list = [ds_list]
+    pert, ctrl = None, None
     for ds in ds_list:
         grid_data = standardize_grid(ds)
-        # Correctly separate Control (cf) vs Perturbed (pf) without relying on missing GRIB_dataType attrs
         if "number" in ds.dims and ds.sizes["number"] > 1:
-            pert_grids.append(grid_data)
+            pert = grid_data
         else:
-            ctrl_grids.append(np.squeeze(grid_data))
+            ctrl = np.squeeze(grid_data)
+    return ctrl, pert
 
-def get_ecmwf_synoptic_grids(model_name, fxx_hours, search_string):
-    pert_grids, ctrl_grids = [], []
+def get_ecmwf_synoptic_by_fxx(model_name, fxx_hours, search_string):
+    """Fetches all synoptic hours once and returns {fxx: (ctrl, pert)}."""
+    by_fxx = {}
     for fxx in fxx_hours:
         try:
             H = Herbie(
                 global_init_time, model=model_name, product="enfo",
                 fxx=fxx, priority=["google", "ecmwf", "aws"], verbose=False
             )
-            _unpack_ecmwf_ds_list(H.xarray(search_string), pert_grids, ctrl_grids)
+            by_fxx[fxx] = _unpack_ecmwf_ds_list(H.xarray(search_string))
         except Exception as e:
             print(f"⚠️ {model_name.upper()} f{fxx:03d} ({search_string}) failed: {e}")
+    return by_fxx
+
+def aggregate_ecmwf_synoptic(by_fxx, fxx_hours, agg="max"):
+    fn = np.max if agg == "max" else np.min
+    ctrl_grids, pert_grids = [], []
+    for f in fxx_hours:
+        if f in by_fxx:
+            c, p = by_fxx[f]
+            if c is not None:
+                ctrl_grids.append(c)
+            if p is not None:
+                pert_grids.append(p)
 
     results = []
     if len(ctrl_grids) == len(fxx_hours):
-        results.append(np.max(np.stack(ctrl_grids), axis=0))
+        results.append(fn(np.stack(ctrl_grids), axis=0))
     if len(pert_grids) == len(fxx_hours):
-        pert_max = np.max(np.stack(pert_grids), axis=0)
-        for i in range(pert_max.shape[0]):
-            results.append(pert_max[i])
+        pert_agg = fn(np.stack(pert_grids), axis=0)
+        for i in range(pert_agg.shape[0]):
+            results.append(pert_agg[i])
     return results
 
-def get_ifs_max_grids(fxx_tmax_list):
+def get_ifs_extremes_grids(fxx_period_list, stat="max"):
     queries = []
-    for f in fxx_tmax_list:
-        if f <= 144:
-            queries.append((f - 3, ":mx2t3:"))
-            queries.append((f, ":mx2t3:"))
+    for f in fxx_period_list:
+        if stat == "max":
+            if f <= 144:
+                queries.extend([(f - 3, ":mx2t3:"), (f, ":mx2t3:")])
+            else:
+                queries.append((f, ":mx2t6:"))
         else:
-            queries.append((f, ":mx2t6:"))
+            if f <= 144:
+                queries.extend([(f - 3, ":mn2t3:"), (f, ":mn2t3:")])
+            else:
+                queries.append((f, ":mn2t6:"))
 
-    pert_grids, ctrl_grids = [], []
+    ctrl_grids, pert_grids = [], []
     for fxx, search_str in queries:
         try:
             H = Herbie(
                 global_init_time, model="ifs", product="enfo",
                 fxx=fxx, priority=["google", "ecmwf", "aws"], verbose=False
             )
-            _unpack_ecmwf_ds_list(H.xarray(search_str), pert_grids, ctrl_grids)
+            c, p = _unpack_ecmwf_ds_list(H.xarray(search_str))
+            if c is not None:
+                ctrl_grids.append(c)
+            if p is not None:
+                pert_grids.append(p)
         except Exception as e:
             print(f"⚠️ IFS f{fxx:03d} ({search_str}) failed: {e}")
 
+    fn = np.max if stat == "max" else np.min
     results = []
     if len(ctrl_grids) == len(queries):
-        results.append(np.max(np.stack(ctrl_grids), axis=0))
+        results.append(fn(np.stack(ctrl_grids), axis=0))
     if len(pert_grids) == len(queries):
-        pert_max = np.max(np.stack(pert_grids), axis=0)
-        for i in range(pert_max.shape[0]):
-            results.append(pert_max[i])
+        pert_agg = fn(np.stack(pert_grids), axis=0)
+        for i in range(pert_agg.shape[0]):
+            results.append(pert_agg[i])
     return results
 
-def fetch_nbm_maxt_50(nbm_date_nomads, nbm_cycle, nbm_fxx):
+def fetch_and_regrid_nbm_50(nbm_date_nomads, nbm_cycle, nbm_fxx, stat="max"):
+    global nbm_triangulation, nbm_valid_mask
     fxx_str = f"f{nbm_fxx:03d}"
     rel_path = f"blend.{nbm_date_nomads}/{nbm_cycle}/qmd/blend.t{nbm_cycle}z.qmd.{fxx_str}.co.grib2"
     mirrors = [
         f"https://noaa-nbm-grib2-pds.s3.amazonaws.com/{rel_path}",
         f"https://nomads.ncep.noaa.gov/pub/data/nccf/com/blend/prod/{rel_path}",
     ]
+    stat_token = "max fcst" if stat == "max" else "min fcst"
 
+    grib_bytes = None
     last_err = None
     for url in mirrors:
         try:
@@ -192,111 +224,60 @@ def fetch_nbm_maxt_50(nbm_date_nomads, nbm_cycle, nbm_fxx):
             r_idx.raise_for_status()
             idx_lines = r_idx.text.splitlines()
 
-            target_idx = next((i for i, line in enumerate(idx_lines) if ":TMP:2 m above ground:" in line and "max fcst" in line and "50% level" in line), None)
-            if target_idx is None: raise ValueError("Could not locate 50th percentile MaxT grid in .idx")
+            target_idx = next(
+                (i for i, line in enumerate(idx_lines)
+                 if ":TMP:2 m above ground:" in line and stat_token in line and "50% level" in line),
+                None,
+            )
+            if target_idx is None:
+                raise ValueError(f"Could not locate 50th percentile {stat_token} grid in .idx")
 
             start_byte = int(idx_lines[target_idx].split(":")[1])
             end_byte = int(idx_lines[target_idx + 1].split(":")[1]) - 1 if target_idx + 1 < len(idx_lines) else ""
             r_grib = http_session.get(url, headers={"Range": f"bytes={start_byte}-{end_byte}"}, timeout=20)
             r_grib.raise_for_status()
-            return r_grib.content
+            grib_bytes = r_grib.content
+            break
         except Exception as e:
             last_err = e
-    raise RuntimeError(f"All NBM mirrors failed: {last_err}")
 
-# --- 5. PRODUCTION MULTI-DAY LOOP ---
-completed_offsets = []
+    if grib_bytes is None:
+        raise RuntimeError(f"All NBM mirrors failed ({stat}): {last_err}")
 
-for offset in date_offsets:
-    valid_date = base_date + timedelta(days=offset)
-    valid_date_str = valid_date.strftime('%A, %B %d, %Y')
-    print(f"\n🚀 Processing Forecast Package for Valid Date: {valid_date_str}")
-    
-    if mode == "18z_package":
-        nbm_fxx = offset * 24 + 12
-        global_base_fxx = offset * 24
-        fxx_list_6hr = [global_base_fxx, global_base_fxx + 6, global_base_fxx + 12, global_base_fxx + 18] 
-    else:  
-        nbm_fxx = offset * 24 + 24
-        global_base_fxx = offset * 24
-        fxx_list_6hr = [global_base_fxx + 12, global_base_fxx + 18, global_base_fxx + 24, global_base_fxx + 30] 
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".grib2") as tmp:
+        tmp.write(grib_bytes)
+        tmp_path = tmp.name
 
-    fxx_tmax_6hr = fxx_list_6hr[1:]  # Strictly 12z-06z window for period-max fields
-    all_gefs_members = ["c00"] + [f"p{str(i).zfill(2)}" for i in range(1, 31)]
-
-    # Concurrently fetch GEFS, IFS, and AIFS
-    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as model_exec:
-        fut_gefs_tmax = model_exec.submit(get_gefs_ensemble_grids, all_gefs_members, fxx_tmax_6hr, ":TMAX:2 m", 20)
-        fut_gefs_synop = model_exec.submit(get_gefs_ensemble_grids, ["c00"], fxx_list_6hr, ":TMP:2 m", 4)
-        fut_ifs_max = model_exec.submit(get_ifs_max_grids, fxx_tmax_6hr)
-        fut_ifs_synop = model_exec.submit(get_ecmwf_synoptic_grids, "ifs", fxx_list_6hr, ":2t:")
-        fut_aifs_synop = model_exec.submit(get_ecmwf_synoptic_grids, "aifs", fxx_list_6hr, ":2t:")
-
-        gefs_tmax_dict = fut_gefs_tmax.result()
-        gefs_synop_dict = fut_gefs_synop.result()
-        ifs_input_grids = fut_ifs_max.result()
-        ifs_synop_grids = fut_ifs_synop.result()
-        aifs_raw_results = fut_aifs_synop.result()
-
-    gefs_input_grids = [gefs_tmax_dict[m] for m in all_gefs_members if m in gefs_tmax_dict]
-
-    gefs_delta = (
-        np.clip(gefs_tmax_dict["c00"] - gefs_synop_dict["c00"], 0, None)
-        if ("c00" in gefs_tmax_dict and "c00" in gefs_synop_dict) else 0.0
-    )
-    
-    ifs_delta = (
-        np.clip(np.mean(np.stack(ifs_input_grids), axis=0) - np.mean(np.stack(ifs_synop_grids), axis=0), 0, None)
-        if (ifs_input_grids and ifs_synop_grids) else 0.0
-    )
-        
-    diurnal_correction_grid = (gefs_delta + ifs_delta) / 2.0
-    aifs_input_grids = [grid + diurnal_correction_grid for grid in aifs_raw_results] if aifs_raw_results else []
-
-    if not gefs_input_grids or not ifs_input_grids or not aifs_input_grids:
-        print(f"⚠️ Incomplete ensemble arrays for {valid_date_str} (GEFS={len(gefs_input_grids)}, IFS={len(ifs_input_grids)}, AIFS={len(aifs_input_grids)}). Skipping.")
-        continue
-
-    gefs_mean_f = (np.mean(np.stack(gefs_input_grids), axis=0) - 273.15) * 9/5 + 32
-    ifs_mean_f = (np.mean(np.stack(ifs_input_grids), axis=0) - 273.15) * 9/5 + 32
-    aifs_mean_f = (np.mean(np.stack(aifs_input_grids), axis=0) - 273.15) * 9/5 + 32
-
-    superensemble_grids = gefs_input_grids + ifs_input_grids + aifs_input_grids
-    super_matrix = np.stack(superensemble_grids)
-
-    # Fetch and Regrid NBM
     try:
-        grib_bytes = fetch_nbm_maxt_50(nbm_date_nomads, nbm_cycle, nbm_fxx)
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".grib2") as tmp:
-            tmp.write(grib_bytes)
-            tmp_path = tmp.name
-            
-        try:
-            ds_nbm = xr.open_dataset(tmp_path, engine="cfgrib")
-            var_key = list(ds_nbm.data_vars)[0]
-            nbm_data = ds_nbm[var_key].values
+        ds_nbm = xr.open_dataset(tmp_path, engine="cfgrib")
+        var_key = list(ds_nbm.data_vars)[0]
+        nbm_data = ds_nbm[var_key].values
 
-            # Build the Delaunay triangulation only once per run
-            if nbm_triangulation is None:
-                nbm_lat = ds_nbm.latitude.values
-                nbm_lon = np.where(ds_nbm.longitude.values > 180, ds_nbm.longitude.values - 360, ds_nbm.longitude.values)
-                nbm_valid_mask = (
-                    (nbm_lat >= lat_min - 3) & (nbm_lat <= lat_max + 3) &
-                    (nbm_lon >= lon_min - 3) & (nbm_lon <= lon_max + 3)
-                )
-                nbm_triangulation = Delaunay(np.column_stack((nbm_lon[nbm_valid_mask], nbm_lat[nbm_valid_mask])))
-            ds_nbm.close()
-        finally:
-            os.remove(tmp_path)
-            
-        interp = LinearNDInterpolator(nbm_triangulation, nbm_data[nbm_valid_mask])
-        nbm_regridded = interp(target_lons, target_lats)
-        nbm_f = (nbm_regridded - 273.15) * 9 / 5 + 32
-    except Exception as e:
-        print(f"❌ Failed to parse NBM for {valid_date_str}: {e}")
-        continue
+        if nbm_triangulation is None:
+            nbm_lat = ds_nbm.latitude.values
+            nbm_lon = np.where(ds_nbm.longitude.values > 180, ds_nbm.longitude.values - 360, ds_nbm.longitude.values)
+            nbm_valid_mask = (
+                (nbm_lat >= lat_min - 3) & (nbm_lat <= lat_max + 3) &
+                (nbm_lon >= lon_min - 3) & (nbm_lon <= lon_max + 3)
+            )
+            nbm_triangulation = Delaunay(np.column_stack((nbm_lon[nbm_valid_mask], nbm_lat[nbm_valid_mask])))
+        ds_nbm.close()
+    finally:
+        os.remove(tmp_path)
 
-    # Computations
+    interp = LinearNDInterpolator(nbm_triangulation, nbm_data[nbm_valid_mask])
+    return interp(target_lons, target_lats)
+
+def render_package_plots(
+    offset, valid_date_str, stat_label, file_prefix,
+    gefs_grids, ifs_grids, aifs_grids, nbm_regridded, t_levels
+):
+    gefs_mean_f = (np.mean(np.stack(gefs_grids), axis=0) - 273.15) * 9 / 5 + 32
+    ifs_mean_f = (np.mean(np.stack(ifs_grids), axis=0) - 273.15) * 9 / 5 + 32
+    aifs_mean_f = (np.mean(np.stack(aifs_grids), axis=0) - 273.15) * 9 / 5 + 32
+    nbm_f = (nbm_regridded - 273.15) * 9 / 5 + 32
+
+    super_matrix = np.stack(gefs_grids + ifs_grids + aifs_grids)
     members_below_nbm = np.sum(super_matrix < nbm_regridded, axis=0)
     percentile_rank = (members_below_nbm / super_matrix.shape[0]) * 100
     percentile_rank_masked = np.ma.masked_where(np.isnan(nbm_regridded), percentile_rank)
@@ -304,90 +285,204 @@ for offset in date_offsets:
     title_valid = f"Valid Date: {valid_date_str}"
     title_inits = f"NBM Init: {display_nbm_str} | Ensemble Init: {global_init_time}"
 
-    # --- PLOT 1: PERCENTILES WITH CUSTOM COLORMAP ---
+    # --- PLOT 1: PERCENTILES ---
     fig1 = plt.figure(figsize=(14, 9))
     ax1 = plt.axes(projection=ccrs.LambertConformal(central_longitude=-96.0, central_latitude=39.2))
     ax1.set_extent([lon_min, lon_max, lat_min, lat_max], crs=ccrs.PlateCarree())
-    ax1.add_feature(cfeature.COASTLINE, linewidth=1.2); ax1.add_feature(cfeature.BORDERS, linewidth=1.2)
+    ax1.add_feature(cfeature.COASTLINE, linewidth=1.2)
+    ax1.add_feature(cfeature.BORDERS, linewidth=1.2)
     ax1.add_feature(cfeature.STATES, linewidth=0.4, linestyle="--")
-    
+
     contour1 = ax1.contourf(
-        target_lons, target_lats, percentile_rank_masked, 
+        target_lons, target_lats, percentile_rank_masked,
         levels=levels, cmap=custom_percentile_cmap, transform=ccrs.PlateCarree(), extend='both'
     )
-    
     cbar1 = plt.colorbar(contour1, shrink=0.7, pad=0.02, ticks=[0, 10, 25, 50, 75, 90, 100])
     cbar1.set_label('NBM Percentile Rank (%)', fontsize=12)
     cbar1.ax.hlines([10, 25, 75, 90], 0, 1, colors='black', linewidth=1.5, linestyles='--')
-    
-    ax1.set_title(f"Max Temperature Percentile Rank (NBM vs Superensemble)\n{title_valid} | {title_inits}", fontsize=13, loc='left', weight='bold')
-    ax1.text(1.15, -0.05, f"Generated: {run_timestamp}", transform=ax1.transAxes, ha='right', va='top', fontsize=10, color='gray')
-    fig1.savefig(f"output/day_{offset}_percentile.png", bbox_inches='tight', dpi=150)
 
-    # --- PLOT 2: VERIFICATION PANELS (Updated Color Range) ---
+    ax1.set_title(
+        f"{stat_label} Temperature Percentile Rank (NBM vs Superensemble)\n{title_valid} | {title_inits}",
+        fontsize=13, loc='left', weight='bold'
+    )
+    ax1.text(1.15, -0.05, f"Generated: {run_timestamp}", transform=ax1.transAxes, ha='right', va='top', fontsize=10, color='gray')
+    fig1.savefig(f"output/day_{offset}_{file_prefix}percentile.png", bbox_inches='tight', dpi=150)
+
+    # --- PLOT 2: VERIFICATION PANELS ---
     fig2, axs = plt.subplots(2, 2, figsize=(16, 11), subplot_kw={'projection': ccrs.LambertConformal(central_longitude=-96.0, central_latitude=39.2)})
     axs = axs.flatten()
-    
-    t_levels = np.arange(-20, 122, 2)  # Updated to span -20F to 120F
-    plot_data = [(gefs_mean_f, "GEFS Ensemble Mean"), (ifs_mean_f, "IFS Ensemble Mean"), (aifs_mean_f, "AIFS Ensemble Mean (Corrected)"), (nbm_f, "NBM Native QMD Median")]
+    plot_data = [
+        (gefs_mean_f, "GEFS Ensemble Mean"),
+        (ifs_mean_f, "IFS Ensemble Mean"),
+        (aifs_mean_f, "AIFS Ensemble Mean (Corrected)"),
+        (nbm_f, "NBM Native QMD Median"),
+    ]
 
     for i, (dataset, title) in enumerate(plot_data):
         axs[i].set_extent([lon_min, lon_max, lat_min, lat_max], crs=ccrs.PlateCarree())
-        axs[i].add_feature(cfeature.COASTLINE, linewidth=0.8); axs[i].add_feature(cfeature.STATES, linewidth=0.4, linestyle="--")
+        axs[i].add_feature(cfeature.COASTLINE, linewidth=0.8)
+        axs[i].add_feature(cfeature.STATES, linewidth=0.4, linestyle="--")
         cf = axs[i].contourf(target_lons, target_lats, dataset, levels=t_levels, cmap='turbo', transform=ccrs.PlateCarree(), extend='both')
         axs[i].set_title(title, fontsize=12, weight='bold')
 
     cbar_ax = fig2.add_axes([0.15, 0.05, 0.7, 0.02])
     cbar2 = fig2.colorbar(cf, cax=cbar_ax, orientation='horizontal')
-    cbar2.set_label('Max Temperature (°F)', fontsize=14)
-    fig2.suptitle(f"Input Verification Checklist: Max Temperature Forecast Mapping\n{title_valid} | {title_inits}", fontsize=15, weight='bold', y=0.96)
+    cbar2.set_label(f'{stat_label} Temperature (°F)', fontsize=14)
+    fig2.suptitle(
+        f"Input Verification Checklist: {stat_label} Temperature Forecast Mapping\n{title_valid} | {title_inits}",
+        fontsize=15, weight='bold', y=0.96
+    )
     axs[3].text(1.0, -0.15, f"Generated: {run_timestamp}", transform=axs[3].transAxes, ha='right', va='top', fontsize=10, color='gray')
-    fig2.savefig(f"output/day_{offset}_verification.png", bbox_inches='tight', dpi=150)
+    fig2.savefig(f"output/day_{offset}_{file_prefix}verification.png", bbox_inches='tight', dpi=150)
 
     # --- PLOT 3: 3-PANEL DIFFERENCE MAP ---
-    print("Plotting 3-Panel Difference Map...")
-    diff_gefs = nbm_f - gefs_mean_f
-    diff_ifs = nbm_f - ifs_mean_f
-    diff_aifs = nbm_f - aifs_mean_f
+    diff_levels = np.arange(-16, 18, 2)
+    diff_data = [
+        (nbm_f - gefs_mean_f, "NBM minus GEFS Mean"),
+        (nbm_f - ifs_mean_f, "NBM minus IFS Mean"),
+        (nbm_f - aifs_mean_f, "NBM minus AIFS Mean (Corrected)"),
+    ]
 
     fig3, axs3 = plt.subplots(1, 3, figsize=(24, 7), subplot_kw={'projection': ccrs.LambertConformal(central_longitude=-96.0, central_latitude=39.2)})
     axs3 = axs3.flatten()
-    diff_levels = np.arange(-16, 18, 2) 
-    diff_cmap = 'RdBu_r'
-    
-    diff_data = [
-        (diff_gefs, "NBM minus GEFS Mean"),
-        (diff_ifs, "NBM minus IFS Mean"),
-        (diff_aifs, "NBM minus AIFS Mean (Corrected)")
-    ]
 
     for i, (dataset, title) in enumerate(diff_data):
         axs3[i].set_extent([lon_min, lon_max, lat_min, lat_max], crs=ccrs.PlateCarree())
-        axs3[i].add_feature(cfeature.COASTLINE, linewidth=0.8); axs3[i].add_feature(cfeature.STATES, linewidth=0.4, linestyle="--")
-        
+        axs3[i].add_feature(cfeature.COASTLINE, linewidth=0.8)
+        axs3[i].add_feature(cfeature.STATES, linewidth=0.4, linestyle="--")
         dataset_masked = np.ma.masked_where(np.isnan(nbm_regridded), dataset)
-        cf3 = axs3[i].contourf(target_lons, target_lats, dataset_masked, levels=diff_levels, cmap=diff_cmap, transform=ccrs.PlateCarree(), extend='both')
+        cf3 = axs3[i].contourf(target_lons, target_lats, dataset_masked, levels=diff_levels, cmap='RdBu_r', transform=ccrs.PlateCarree(), extend='both')
         axs3[i].set_title(title, fontsize=12, weight='bold')
 
     fig3.subplots_adjust(bottom=0.15)
     cbar_ax3 = fig3.add_axes([0.15, 0.05, 0.7, 0.03])
     cbar3 = fig3.colorbar(cf3, cax=cbar_ax3, orientation='horizontal')
     cbar3.set_label('Temperature Difference (°F) [Positive/Red = NBM is Warmer]', fontsize=14)
-    fig3.suptitle(f"Ensemble Bias Check: NBM QMD vs Global Means\n{title_valid} | {title_inits}", fontsize=15, weight='bold', y=0.98)
+    fig3.suptitle(
+        f"Ensemble Bias Check ({stat_label}T): NBM QMD vs Global Means\n{title_valid} | {title_inits}",
+        fontsize=15, weight='bold', y=0.98
+    )
     axs3[2].text(1.0, -0.25, f"Generated: {run_timestamp}", transform=axs3[2].transAxes, ha='right', va='top', fontsize=10, color='gray')
-    fig3.savefig(f"output/day_{offset}_difference.png", bbox_inches='tight', dpi=150)
-    
+    fig3.savefig(f"output/day_{offset}_{file_prefix}difference.png", bbox_inches='tight', dpi=150)
+
     plt.close('all')
-    completed_offsets.append({
-        "offset": offset,
-        "valid_date": valid_date_str
-    })
+
+# --- 5. PRODUCTION MULTI-DAY LOOP ---
+completed_max_offsets = []
+completed_min_offsets = []
+all_gefs_members = ["c00"] + [f"p{str(i).zfill(2)}" for i in range(1, 31)]
+
+for offset in date_offsets:
+    valid_date = base_date + timedelta(days=offset)
+    valid_date_str = valid_date.strftime('%A, %B %d, %Y')
+    print(f"\n🚀 Processing Forecast Package for Valid Date: {valid_date_str}")
+
+    if mode == "18z_package":
+        nbm_fxx_max = offset * 24 + 12  # Valid 12z Day D -> 06z Day D+1
+        nbm_fxx_min = offset * 24       # Valid 00z Day D -> 18z Day D
+        global_base_fxx = offset * 24   # 12z Day D
+        fxx_synop_max = [global_base_fxx, global_base_fxx + 6, global_base_fxx + 12, global_base_fxx + 18]
+        fxx_synop_min = [global_base_fxx - 12, global_base_fxx - 6, global_base_fxx, global_base_fxx + 6]
+    else:
+        nbm_fxx_max = offset * 24 + 24  # Valid 12z Day D -> 06z Day D+1
+        nbm_fxx_min = offset * 24 + 12  # Valid 00z Day D -> 18z Day D
+        global_base_fxx = offset * 24   # 00z Day D
+        fxx_synop_max = [global_base_fxx + 12, global_base_fxx + 18, global_base_fxx + 24, global_base_fxx + 30]
+        fxx_synop_min = [global_base_fxx, global_base_fxx + 6, global_base_fxx + 12, global_base_fxx + 18]
+
+    fxx_period_max = fxx_synop_max[1:]  # Strictly 12z-06z
+    fxx_period_min = fxx_synop_min[1:]  # Strictly 00z-18z
+    all_synop_fxx = sorted(set(fxx_synop_max + fxx_synop_min))
+
+    # Concurrently fetch MaxT, MinT, and shared synoptic fields
+    with concurrent.futures.ThreadPoolExecutor(max_workers=7) as model_exec:
+        fut_gefs_tmax = model_exec.submit(get_gefs_by_fxx, all_gefs_members, fxx_period_max, ":TMAX:2 m", 24)
+        fut_gefs_tmin = model_exec.submit(get_gefs_by_fxx, all_gefs_members, fxx_period_min, ":TMIN:2 m", 24)
+        fut_gefs_synop = model_exec.submit(get_gefs_by_fxx, ["c00"], all_synop_fxx, ":TMP:2 m", 6)
+        fut_ifs_max = model_exec.submit(get_ifs_extremes_grids, fxx_period_max, "max")
+        fut_ifs_min = model_exec.submit(get_ifs_extremes_grids, fxx_period_min, "min")
+        fut_ifs_synop = model_exec.submit(get_ecmwf_synoptic_by_fxx, "ifs", all_synop_fxx, ":2t:")
+        fut_aifs_synop = model_exec.submit(get_ecmwf_synoptic_by_fxx, "aifs", all_synop_fxx, ":2t:")
+
+        gefs_tmax_raw = fut_gefs_tmax.result()
+        gefs_tmin_raw = fut_gefs_tmin.result()
+        gefs_synop_raw = fut_gefs_synop.result()
+        ifs_max_grids = fut_ifs_max.result()
+        ifs_min_grids = fut_ifs_min.result()
+        ifs_synop_raw = fut_ifs_synop.result()
+        aifs_synop_raw = fut_aifs_synop.result()
+
+    # --- A. PROCESS & PLOT MAXT ---
+    gefs_max_dict = aggregate_gefs_members(gefs_tmax_raw, all_gefs_members, fxx_period_max, "max")
+    gefs_max_grids = [gefs_max_dict[m] for m in all_gefs_members if m in gefs_max_dict]
+    gefs_c00_synop_max = aggregate_gefs_members(gefs_synop_raw, ["c00"], fxx_synop_max, "max")
+    ifs_synop_max_grids = aggregate_ecmwf_synoptic(ifs_synop_raw, fxx_synop_max, "max")
+    aifs_raw_max = aggregate_ecmwf_synoptic(aifs_synop_raw, fxx_synop_max, "max")
+
+    gefs_max_delta = (
+        np.clip(gefs_max_dict["c00"] - gefs_c00_synop_max["c00"], 0, None)
+        if ("c00" in gefs_max_dict and "c00" in gefs_c00_synop_max) else 0.0
+    )
+    ifs_max_delta = (
+        np.clip(np.mean(np.stack(ifs_max_grids), axis=0) - np.mean(np.stack(ifs_synop_max_grids), axis=0), 0, None)
+        if (ifs_max_grids and ifs_synop_max_grids) else 0.0
+    )
+    diurnal_max_corr = (gefs_max_delta + ifs_max_delta) / 2.0
+    aifs_max_grids = [g + diurnal_max_corr for g in aifs_raw_max] if aifs_raw_max else []
+
+    if gefs_max_grids and ifs_max_grids and aifs_max_grids:
+        try:
+            nbm_max_grid = fetch_and_regrid_nbm_50(nbm_date_nomads, nbm_cycle, nbm_fxx_max, "max")
+            print("📈 Plotting MaxT maps...")
+            render_package_plots(
+                offset, valid_date_str, "Max", "",
+                gefs_max_grids, ifs_max_grids, aifs_max_grids, nbm_max_grid,
+                t_levels=np.arange(-20, 122, 2)
+            )
+            completed_max_offsets.append({"offset": offset, "valid_date": valid_date_str})
+        except Exception as e:
+            print(f"❌ Failed MaxT NBM/plotting for {valid_date_str}: {e}")
+    else:
+        print(f"⚠️ Incomplete MaxT arrays for {valid_date_str}. Skipping MaxT.")
+
+    # --- B. PROCESS & PLOT MINT ---
+    gefs_min_dict = aggregate_gefs_members(gefs_tmin_raw, all_gefs_members, fxx_period_min, "min")
+    gefs_min_grids = [gefs_min_dict[m] for m in all_gefs_members if m in gefs_min_dict]
+    gefs_c00_synop_min = aggregate_gefs_members(gefs_synop_raw, ["c00"], fxx_synop_min, "min")
+    ifs_synop_min_grids = aggregate_ecmwf_synoptic(ifs_synop_raw, fxx_synop_min, "min")
+    aifs_raw_min = aggregate_ecmwf_synoptic(aifs_synop_raw, fxx_synop_min, "min")
+
+    gefs_min_delta = (
+        np.clip(gefs_c00_synop_min["c00"] - gefs_min_dict["c00"], 0, None)
+        if ("c00" in gefs_min_dict and "c00" in gefs_c00_synop_min) else 0.0
+    )
+    ifs_min_delta = (
+        np.clip(np.mean(np.stack(ifs_synop_min_grids), axis=0) - np.mean(np.stack(ifs_min_grids), axis=0), 0, None)
+        if (ifs_min_grids and ifs_synop_min_grids) else 0.0
+    )
+    nocturnal_min_corr = (gefs_min_delta + ifs_min_delta) / 2.0
+    aifs_min_grids = [g - nocturnal_min_corr for g in aifs_raw_min] if aifs_raw_min else []
+
+    if gefs_min_grids and ifs_min_grids and aifs_min_grids:
+        try:
+            nbm_min_grid = fetch_and_regrid_nbm_50(nbm_date_nomads, nbm_cycle, nbm_fxx_min, "min")
+            print("📉 Plotting MinT maps...")
+            render_package_plots(
+                offset, valid_date_str, "Min", "min_",
+                gefs_min_grids, ifs_min_grids, aifs_min_grids, nbm_min_grid,
+                t_levels=np.arange(-40, 92, 2)
+            )
+            completed_min_offsets.append({"offset": offset, "valid_date": valid_date_str})
+        except Exception as e:
+            print(f"❌ Failed MinT NBM/plotting for {valid_date_str}: {e}")
+    else:
+        print(f"⚠️ Incomplete MinT arrays for {valid_date_str}. Skipping MinT.")
 
 # --- 6. METADATA MANIFEST GENERATION ---
-manifest_path = "output/manifest.json"
-with open(manifest_path, "w") as f:
+with open("output/manifest.json", "w") as f:
     json.dump({
-        "offsets": completed_offsets,
+        "offsets": completed_max_offsets,
+        "min_offsets": completed_min_offsets,
         "run_timestamp": run_timestamp,
         "nbm_init": display_nbm_str,
         "global_init": global_init_time,
