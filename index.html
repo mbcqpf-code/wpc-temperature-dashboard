@@ -23,21 +23,58 @@
         header h1 { margin: 0; font-size: 1.8rem; letter-spacing: 0.5px; }
         header p { margin: 6px 0 0 0; color: #94a3b8; font-size: 0.92rem; }
 
+        /* Controls Bar: Metric Toggle + Valid Date Tabs */
+        .controls-bar {
+            background: white;
+            border-bottom: 1px solid #e2e8f0;
+            padding: 14px 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .metric-toggle {
+            display: inline-flex;
+            background: #e2e8f0;
+            padding: 4px;
+            border-radius: 8px;
+            gap: 4px;
+        }
+        .metric-btn {
+            padding: 8px 22px;
+            border: none;
+            background: transparent;
+            color: #475569;
+            font-size: 0.95rem;
+            font-weight: 700;
+            cursor: pointer;
+            border-radius: 6px;
+            transition: all 0.2s ease;
+        }
+        .metric-btn.active[data-metric="max"] {
+            background: #dc2626;
+            color: white;
+            box-shadow: 0 2px 4px rgba(220, 38, 38, 0.3);
+        }
+        .metric-btn.active[data-metric="min"] {
+            background: #0284c7;
+            color: white;
+            box-shadow: 0 2px 4px rgba(2, 132, 199, 0.3);
+        }
+
         .nav-container {
             display: flex;
             justify-content: center;
             flex-wrap: wrap;
             gap: 10px;
-            padding: 18px 20px;
-            background: white;
-            border-bottom: 1px solid #e2e8f0;
         }
         .nav-btn {
-            padding: 10px 20px;
+            padding: 9px 18px;
             border: none;
             background: #e2e8f0;
             color: #475569;
-            font-size: 0.95rem;
+            font-size: 0.92rem;
             font-weight: 600;
             cursor: pointer;
             border-radius: 6px;
@@ -59,13 +96,11 @@
         }
 
         .panel {
-            display: none;
-            padding: 30px;
+            padding: 28px;
             max-width: 1600px;
             margin: 0 auto;
-            animation: fadeIn 0.3s ease;
+            animation: fadeIn 0.25s ease;
         }
-        .panel.active { display: block; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
         .image-grid {
@@ -149,7 +184,14 @@
         <p id="metaSubtitle">Loading operational forecast metadata...</p>
     </header>
 
-    <div class="nav-container" id="tabs"></div>
+    <div class="controls-bar">
+        <div class="metric-toggle">
+            <button class="metric-btn active" data-metric="max" onclick="switchMetric('max')">MaxT (12z–06z)</button>
+            <button class="metric-btn" data-metric="min" onclick="switchMetric('min')">MinT (00z–18z)</button>
+        </div>
+        <div class="nav-container" id="tabs"></div>
+    </div>
+
     <div id="panels"></div>
 
     <div id="imageModal" class="modal" onclick="closeModal(event)">
@@ -170,7 +212,9 @@
         const modal = document.getElementById('imageModal');
         const modalImg = document.getElementById('enlargedImg');
 
-        let loadedOffsets = [];
+        let validEntriesByMetric = { max: [], min: [] };
+        let activeMetric = 'max';
+        let activeOffset = null;
 
         function getFallbackEntries() {
             const isNightShift = (utcHour === 1 && utcMinute > 30) || (utcHour >= 2 && utcHour <= 12) || (utcHour === 13 && utcMinute <= 30);
@@ -189,17 +233,28 @@
             });
         }
 
-        function checkImage(entry) {
+        function normalizeEntries(rawList) {
+            return rawList.map(item =>
+                typeof item === 'object' && item !== null
+                    ? { offset: item.offset, label: item.valid_date || `Day +${item.offset}` }
+                    : { offset: item, label: `Day +${item}` }
+            );
+        }
+
+        function checkImage(entry, metric) {
+            const prefix = metric === 'min' ? 'min_' : '';
             return new Promise((resolve) => {
                 const imgTester = new Image();
                 imgTester.onload = () => resolve(entry);
                 imgTester.onerror = () => resolve(null);
-                imgTester.src = `output/day_${entry.offset}_percentile.png${cacheBuster}`;
+                imgTester.src = `output/day_${entry.offset}_${prefix}percentile.png${cacheBuster}`;
             });
         }
 
         async function initDashboard() {
-            let entries = getFallbackEntries();
+            const fallback = getFallbackEntries();
+            let rawMax = fallback;
+            let rawMin = fallback;
 
             try {
                 const res = await fetch(`output/manifest.json${cacheBuster}`);
@@ -210,76 +265,84 @@
                         metaSubtitle.textContent = `Ensemble Init: ${manifest.global_init} | NBM Base: ${manifest.nbm_init}${updatedPart}`;
                     }
                     if (Array.isArray(manifest.offsets) && manifest.offsets.length > 0) {
-                        entries = manifest.offsets.map(item =>
-                            typeof item === 'object' && item !== null
-                                ? { offset: item.offset, label: item.valid_date || `Day +${item.offset}` }
-                                : { offset: item, label: `Day +${item}` }
-                        );
+                        rawMax = normalizeEntries(manifest.offsets);
+                    }
+                    if (Array.isArray(manifest.min_offsets) && manifest.min_offsets.length > 0) {
+                        rawMin = normalizeEntries(manifest.min_offsets);
+                    } else {
+                        rawMin = rawMax;
                     }
                 }
             } catch (_) {
                 metaSubtitle.textContent = 'Displaying active operational window';
             }
 
-            const results = await Promise.all(entries.map(checkImage));
-            const validEntries = results.filter(item => item !== null);
+            const [maxChecks, minChecks] = await Promise.all([
+                Promise.all(rawMax.map(e => checkImage(e, 'max'))),
+                Promise.all(rawMin.map(e => checkImage(e, 'min')))
+            ]);
 
-            if (validEntries.length === 0) {
-                panelsContainer.innerHTML = `<div class="status-msg">No operational outputs are available for this shift yet. Please check back later.</div>`;
+            validEntriesByMetric.max = maxChecks.filter(Boolean);
+            validEntriesByMetric.min = minChecks.filter(Boolean);
+
+            renderView();
+        }
+
+        function switchMetric(metric) {
+            if (activeMetric === metric) return;
+            activeMetric = metric;
+            document.querySelectorAll('.metric-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.metric === metric);
+            });
+            renderView();
+        }
+
+        function renderView() {
+            const entries = validEntriesByMetric[activeMetric];
+            tabsContainer.innerHTML = '';
+
+            if (entries.length === 0) {
+                const label = activeMetric === 'max' ? 'MaxT' : 'MinT';
+                panelsContainer.innerHTML = `<div class="status-msg">No operational ${label} outputs are available for this shift yet. Please check back later.</div>`;
                 return;
             }
 
-            validEntries.forEach((entry, idx) => {
-                const { offset, label } = entry;
-                loadedOffsets.push(offset);
+            if (!entries.some(e => e.offset === activeOffset)) {
+                activeOffset = entries[0].offset;
+            }
 
-                const img1Src = `output/day_${offset}_percentile.png${cacheBuster}`;
-                const img2Src = `output/day_${offset}_verification.png${cacheBuster}`;
-                const img3Src = `output/day_${offset}_difference.png${cacheBuster}`;
-
+            entries.forEach(entry => {
                 const btn = document.createElement('button');
-                btn.className = 'nav-btn';
-                btn.id = `btn-${offset}`;
-                btn.innerText = label;
-                btn.onclick = () => activateTab(offset);
+                btn.className = `nav-btn${entry.offset === activeOffset ? ' active' : ''}`;
+                btn.innerText = entry.label;
+                btn.onclick = () => {
+                    activeOffset = entry.offset;
+                    renderView();
+                };
                 tabsContainer.appendChild(btn);
-
-                const panel = document.createElement('div');
-                panel.className = 'panel';
-                panel.id = `panel-${offset}`;
-
-                const grid = document.createElement('div');
-                grid.className = 'image-grid';
-
-                const card1 = document.createElement('div');
-                card1.className = 'image-card';
-                card1.innerHTML = `<img src="${img1Src}" alt="Percentile Map - ${label}" onclick="openModal(this.src)">`;
-
-                const card2 = document.createElement('div');
-                card2.className = 'image-card';
-                card2.innerHTML = `<img src="${img2Src}" alt="Verification Map - ${label}" onclick="openModal(this.src)">`;
-
-                const card3 = document.createElement('div');
-                card3.className = 'image-card full-width';
-                card3.innerHTML = `<img src="${img3Src}" alt="Difference Map - ${label}" onclick="openModal(this.src)">`;
-
-                grid.appendChild(card1);
-                grid.appendChild(card2);
-                panel.appendChild(grid);
-                panel.appendChild(card3);
-                panelsContainer.appendChild(panel);
-
-                if (idx === 0) {
-                    activateTab(offset);
-                }
             });
-        }
 
-        function activateTab(targetOffset) {
-            document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
-            document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
-            document.getElementById(`panel-${targetOffset}`).classList.add('active');
-            document.getElementById(`btn-${targetOffset}`).classList.add('active');
+            const current = entries.find(e => e.offset === activeOffset) || entries[0];
+            const prefix = activeMetric === 'min' ? 'min_' : '';
+            const img1Src = `output/day_${current.offset}_${prefix}percentile.png${cacheBuster}`;
+            const img2Src = `output/day_${current.offset}_${prefix}verification.png${cacheBuster}`;
+            const img3Src = `output/day_${current.offset}_${prefix}difference.png${cacheBuster}`;
+
+            panelsContainer.innerHTML = `
+                <div class="panel">
+                    <div class="image-grid">
+                        <div class="image-card">
+                            <img src="${img1Src}" alt="Percentile Map - ${current.label}" onclick="openModal(this.src)">
+                        </div>
+                        <div class="image-card">
+                            <img src="${img2Src}" alt="Verification Map - ${current.label}" onclick="openModal(this.src)">
+                        </div>
+                    </div>
+                    <div class="image-card full-width">
+                        <img src="${img3Src}" alt="Difference Map - ${current.label}" onclick="openModal(this.src)">
+                    </div>
+                </div>
+            `;
         }
 
         function openModal(src) {
@@ -297,19 +360,22 @@
                 modal.style.display = 'none';
                 return;
             }
-            if (modal.style.display === 'flex' || loadedOffsets.length === 0) return;
+            if (modal.style.display === 'flex') return;
 
-            const activeBtn = document.querySelector('.nav-btn.active');
-            if (!activeBtn) return;
+            const entries = validEntriesByMetric[activeMetric];
+            if (entries.length === 0) return;
 
-            const currentOffset = parseInt(activeBtn.id.replace('btn-', ''), 10);
-            const currentIndex = loadedOffsets.indexOf(currentOffset);
+            const currentIndex = entries.findIndex(e => e.offset === activeOffset);
             if (currentIndex === -1) return;
 
             if (event.key === 'ArrowRight') {
-                activateTab(loadedOffsets[(currentIndex + 1) % loadedOffsets.length]);
+                activeOffset = entries[(currentIndex + 1) % entries.length].offset;
+                renderView();
             } else if (event.key === 'ArrowLeft') {
-                activateTab(loadedOffsets[(currentIndex - 1 + loadedOffsets.length) % loadedOffsets.length]);
+                activeOffset = entries[(currentIndex - 1 + entries.length) % entries.length].offset;
+                renderView();
+            } else if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+                switchMetric(activeMetric === 'max' ? 'min' : 'max');
             }
         });
 
