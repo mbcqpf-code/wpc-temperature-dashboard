@@ -1,1 +1,49 @@
-{"offsets": [{"offset": 3, "valid_date": "Sunday, November 29, 2026"}, {"offset": 4, "valid_date": "Monday, November 30, 2026"}, {"offset": 5, "valid_date": "Tuesday, December 01, 2026"}, {"offset": 6, "valid_date": "Wednesday, December 02, 2026"}, {"offset": 7, "valid_date": "Thursday, December 03, 2026"}], "min_offsets": [{"offset": 3, "valid_date": "Sunday, November 29, 2026"}, {"offset": 4, "valid_date": "Monday, November 30, 2026"}, {"offset": 5, "valid_date": "Tuesday, December 01, 2026"}, {"offset": 6, "valid_date": "Wednesday, December 02, 2026"}, {"offset": 7, "valid_date": "Thursday, December 03, 2026"}], "run_timestamp": "2026-11-26 22:37z", "nbm_init": "2026-11-26 13z", "global_init": "2026-11-26 00:00"}
+{
+  "offsets": [
+    {
+      "offset": 4,
+      "valid_date": "Monday, November 30, 2026"
+    },
+    {
+      "offset": 5,
+      "valid_date": "Tuesday, December 01, 2026"
+    },
+    {
+      "offset": 6,
+      "valid_date": "Wednesday, December 02, 2026"
+    },
+    {
+      "offset": 7,
+      "valid_date": "Thursday, December 03, 2026"
+    },
+    {
+      "offset": 8,
+      "valid_date": "Friday, December 04, 2026"
+    }
+  ],
+  "min_offsets": [
+    {
+      "offset": 4,
+      "valid_date": "Monday, November 30, 2026"
+    },
+    {
+      "offset": 5,
+      "valid_date": "Tuesday, December 01, 2026"
+    },
+    {
+      "offset": 6,
+      "valid_date": "Wednesday, December 02, 2026"
+    },
+    {
+      "offset": 7,
+      "valid_date": "Thursday, December 03, 2026"
+    },
+    {
+      "offset": 8,
+      "valid_date": "Friday, December 04, 2026"
+    }
+  ],
+  "run_timestamp": "2026-11-27 05:24z",
+  "nbm_init": "2026-11-27 01z",
+  "global_init": "2026-11-26 12:00"
+}
