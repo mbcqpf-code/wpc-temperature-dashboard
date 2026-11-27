@@ -1,49 +1,49 @@
 {
   "offsets": [
     {
-      "offset": 4,
+      "offset": 3,
       "valid_date": "Monday, November 30, 2026"
     },
     {
-      "offset": 5,
+      "offset": 4,
       "valid_date": "Tuesday, December 01, 2026"
     },
     {
-      "offset": 6,
+      "offset": 5,
       "valid_date": "Wednesday, December 02, 2026"
     },
     {
-      "offset": 7,
+      "offset": 6,
       "valid_date": "Thursday, December 03, 2026"
     },
     {
-      "offset": 8,
+      "offset": 7,
       "valid_date": "Friday, December 04, 2026"
     }
   ],
   "min_offsets": [
     {
-      "offset": 4,
+      "offset": 3,
       "valid_date": "Monday, November 30, 2026"
     },
     {
-      "offset": 5,
+      "offset": 4,
       "valid_date": "Tuesday, December 01, 2026"
     },
     {
-      "offset": 6,
+      "offset": 5,
       "valid_date": "Wednesday, December 02, 2026"
     },
     {
-      "offset": 7,
+      "offset": 6,
       "valid_date": "Thursday, December 03, 2026"
     },
     {
-      "offset": 8,
+      "offset": 7,
       "valid_date": "Friday, December 04, 2026"
     }
   ],
-  "run_timestamp": "2026-11-27 10:09z",
-  "nbm_init": "2026-11-27 01z",
-  "global_init": "2026-11-26 12:00"
+  "run_timestamp": "2026-11-27 22:21z",
+  "nbm_init": "2026-11-27 13z",
+  "global_init": "2026-11-27 00:00"
 }
